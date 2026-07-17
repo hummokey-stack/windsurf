@@ -1,0 +1,42 @@
+Options -Indexes
+RewriteEngine On
+
+# ---- Sécurité : bloquer l'accès aux dossiers sensibles ----
+RewriteRule ^data/           - [F,L]
+RewriteRule ^includes/       - [F,L]
+
+# ---- Protection des fichiers sensibles ----
+<FilesMatch "\.(db|sql|log|env|ini|bak)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# ---- Forcer HTTPS (décommenter en production) ----
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# ---- Headers de sécurité ----
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ---- Cache navigateur (assets statiques) ----
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/png  "access plus 1 month"
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType text/css   "access plus 1 week"
+  ExpiresByType application/javascript "access plus 1 week"
+</IfModule>
+
+# ---- Compression gzip ----
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript text/plain
+</IfModule>
+
+# ---- Page d'erreur personnalisée ----
+ErrorDocument 404 /index.php

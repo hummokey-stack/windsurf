@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#f0f4f8"/>
+  <rect x="140" y="80" width="120" height="90" rx="10" fill="#e2e8f0"/>
+  <circle cx="200" cy="70" r="22" fill="#cbd5e0"/>
+  <polygon points="145,170 255,170 240,125 220,155 208,135 192,162 175,145" fill="#cbd5e0"/>
+  <text x="200" y="210" font-family="Rajdhani,Arial,sans-serif" font-size="16" font-weight="700" fill="#718096" text-anchor="middle">GlisseShop</text>
+  <text x="200" y="232" font-family="Arial,sans-serif" font-size="12" fill="#a0aec0" text-anchor="middle">Image produit</text>
+  <text x="200" y="252" font-family="Arial,sans-serif" font-size="10" fill="#cbd5e0" text-anchor="middle">400 × 300</text>
+</svg>

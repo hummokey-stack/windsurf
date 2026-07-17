@@ -1,0 +1,217 @@
+<?php
+/**
+ * Page d'accueil — GlisseShop
+ * index.php
+ */
+require_once 'includes/functions.php';
+
+$pageTitle = null; // Titre par défaut
+$settings  = getSettings();
+$pageDesc  = $settings['meta_description'] ?? '';
+
+$categories  = getCategoriesParentes();
+$nouveautes  = getDerniersProduitsNouveautes(4);
+$promos      = getProduitsPromo(4);
+$blogArticles= getDerniersBlogArticles(3);
+$livraisonSeuil = $settings['livraison_gratuite_montant'] ?? 100;
+
+require_once 'includes/header.php';
+
+// Icônes des catégories
+$catIcons = [
+    'wing'      => '🪂',
+    'surf'      => '🏄',
+    'foil'      => '⚡',
+    'kitesurf'  => '🪁',
+    'windsurf'  => '⛵',
+    'sup'       => '🏊',
+    'wakeboard' => '🌊',
+    'efoil'     => '⚙️',
+    'neoprene'  => '🦺',
+    'lifestyle' => '🕶️',
+    'snowboard' => '🏔️',
+];
+?>
+
+<!-- Hero Section -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="container">
+    <div class="hero-content">
+      <span class="hero-tag">✦ Spécialiste sports de glisse</span>
+      <h1>Votre passion,<br><span>notre expertise.</span></h1>
+      <p>Wingsurf, kitesurf, surf, foil, SUP… Découvrez notre sélection premium de matériel neuf et d'occasion.</p>
+      <div class="hero-btns">
+        <a href="categorie.php?slug=wing" class="btn btn-accent btn-lg">
+          <i class="fas fa-wind"></i> Découvrir le Wing
+        </a>
+        <a href="promotions.php" class="btn btn-outline" style="border-color:rgba(255,255,255,0.5);color:#fff;">
+          🔥 Voir les promos
+        </a>
+      </div>
+      <div class="hero-stats">
+        <div>
+          <div class="hero-stat-num">500+</div>
+          <div class="hero-stat-label">Produits en stock</div>
+        </div>
+        <div>
+          <div class="hero-stat-num">20+</div>
+          <div class="hero-stat-label">Marques premium</div>
+        </div>
+        <div>
+          <div class="hero-stat-num">10 ans</div>
+          <div class="hero-stat-label">D'expérience</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Bandeau livraison -->
+<div class="bandeau-livraison">
+  <span><span class="icon">🚚</span>Livraison offerte dès <?= number_format($livraisonSeuil, 0, ',', ' ') ?> €</span>
+  <span><span class="icon">🔄</span>Retours 30 jours</span>
+  <span><span class="icon">🔒</span>Paiement sécurisé</span>
+  <span><span class="icon">💬</span>Experts disponibles</span>
+</div>
+
+<!-- Univers / Catégories -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>Nos univers</h2>
+      <div class="underline"></div>
+      <p>11 disciplines, une passion commune : la glisse</p>
+    </div>
+    <div class="categories-grid">
+      <?php foreach ($categories as $cat): ?>
+        <a href="categorie.php?slug=<?= h($cat['slug']) ?>" class="category-card">
+          <span class="icon"><?= $catIcons[$cat['slug']] ?? '🌊' ?></span>
+          <div class="name"><?= h($cat['nom']) ?></div>
+        </a>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+
+<!-- Nouveautés -->
+<?php if (!empty($nouveautes)): ?>
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>⭐ Nouveautés</h2>
+      <div class="underline"></div>
+      <p>Les dernières références arrivées en boutique</p>
+    </div>
+    <div class="products-grid">
+      <?php foreach ($nouveautes as $p): ?>
+        <?php include 'includes/product-card.php'; ?>
+      <?php endforeach; ?>
+    </div>
+    <div class="text-center mt-4">
+      <a href="categorie.php?slug=wing" class="btn btn-outline">Voir tous les produits</a>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
+
+<!-- Promotions -->
+<?php if (!empty($promos)): ?>
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>🔥 Promotions</h2>
+      <div class="underline"></div>
+      <p>Des prix réduits sur du matériel premium</p>
+    </div>
+    <div class="products-grid">
+      <?php foreach ($promos as $p): ?>
+        <?php include 'includes/product-card.php'; ?>
+      <?php endforeach; ?>
+    </div>
+    <div class="text-center mt-4">
+      <a href="promotions.php" class="btn btn-accent">🔥 Toutes les promos</a>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
+
+<!-- Notre expertise -->
+<section class="section">
+  <div class="container">
+    <div class="expertise-layout">
+      <div class="expertise-img">
+        <img src="assets/images/placeholder.jpg" alt="Équipe GlisseShop" style="filter:hue-rotate(180deg);">
+      </div>
+      <div class="expertise-text">
+        <h2>10 ans au service de votre passion</h2>
+        <p>Fondée par des passionnés de sports nautiques, GlisseShop est votre partenaire de confiance pour tous vos équipements de glisse. Notre équipe de riders experts vous conseille sur le matériel adapté à votre niveau et à vos conditions de ride.</p>
+        <p>Showroom ouvert 7j/7, essais possibles, location de matériel, cours d'initiation… Tout pour vivre la glisse à 100% !</p>
+        <div class="expertise-points">
+          <div class="expertise-point">
+            <div class="dot"></div>
+            <span>Conseils personnalisés par des riders professionnels</span>
+          </div>
+          <div class="expertise-point">
+            <div class="dot"></div>
+            <span>Matériel d'occasion certifié et contrôlé</span>
+          </div>
+          <div class="expertise-point">
+            <div class="dot"></div>
+            <span>Service après-vente rapide et réparations</span>
+          </div>
+          <div class="expertise-point">
+            <div class="dot"></div>
+            <span>Partenaire officiel des plus grandes marques</span>
+          </div>
+        </div>
+        <div class="mt-3">
+          <a href="a-propos.php" class="btn btn-primary">En savoir plus <i class="fas fa-arrow-right"></i></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Blog -->
+<?php if (!empty($blogArticles)): ?>
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>Blog & Conseils</h2>
+      <div class="underline"></div>
+      <p>Guides, spots, entretien et actus sports de glisse</p>
+    </div>
+    <div class="blog-grid">
+      <?php foreach ($blogArticles as $art): ?>
+        <article class="blog-card">
+          <div class="blog-card-img">
+            <img src="<?= $art['image'] && file_exists($art['image']) ? h($art['image']) : 'assets/images/placeholder.jpg' ?>"
+                 alt="<?= h($art['titre']) ?>">
+          </div>
+          <div class="blog-card-body">
+            <?php if ($art['categorie']): ?>
+              <span class="blog-cat-tag"><?= h($art['categorie']) ?></span>
+            <?php endif; ?>
+            <h3 class="blog-card-title">
+              <a href="article.php?slug=<?= h($art['slug']) ?>"><?= h($art['titre']) ?></a>
+            </h3>
+            <p class="blog-card-excerpt"><?= h(substr($art['extrait'] ?: strip_tags($art['contenu']), 0, 120)) ?>…</p>
+            <div class="blog-card-meta">
+              <span><i class="fas fa-calendar" style="margin-right:4px;"></i><?= formatDate($art['date_creation']) ?></span>
+              <a href="article.php?slug=<?= h($art['slug']) ?>" style="color:var(--primary);font-weight:600;font-size:0.82rem;">
+                Lire <i class="fas fa-arrow-right"></i>
+              </a>
+            </div>
+          </div>
+        </article>
+      <?php endforeach; ?>
+    </div>
+    <div class="text-center mt-4">
+      <a href="blog.php" class="btn btn-outline">Tous les articles <i class="fas fa-arrow-right"></i></a>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
+
+<?php require_once 'includes/footer.php'; ?>
