@@ -1,0 +1,229 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { db, schema } from '../../db';
+import { eq, ne, and, sql } from 'drizzle-orm';
+import { slugify } from '../../lib/utils';
+
+let errors: string[] = [];
+let success = '';
+
+// Handle POST actions
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = formData.get('action') as string;
+  const catId = parseInt(formData.get('cat_id') as string || '0', 10);
+
+  if (action === 'delete' && catId) {
+    const linkedProducts = await db.select({ count: sql<number>`count(*)` }).from(schema.produits).where(eq(schema.produits.categorieId, catId));
+    if ((linkedProducts[0]?.count || 0) > 0) {
+      errors.push("Impossible de supprimer : des produits sont liés à cette catégorie.");
+    } else {
+      await db.delete(schema.categories).where(eq(schema.categories.id, catId));
+      success = "Catégorie supprimée avec succès.";
+    }
+  } else if (action === 'save') {
+    const nom = (formData.get('nom') as string || '').trim();
+    const parentIdVal = formData.get('parent_id') ? parseInt(formData.get('parent_id') as string, 10) : null;
+    const description = (formData.get('description') as string || '').trim();
+    const ordre = parseInt(formData.get('ordre') as string || '0', 10);
+    const actif = formData.get('actif') ? 1 : 0;
+
+    if (!nom) {
+      errors.push('Le nom de la catégorie est obligatoire.');
+    } else {
+      let baseSlug = slugify(nom) || 'categorie';
+      let uniqueSlug = baseSlug;
+      let counter = 1;
+
+      while (true) {
+        let existing;
+        if (catId) {
+          existing = await db.select().from(schema.categories).where(and(eq(schema.categories.slug, uniqueSlug), ne(schema.categories.id, catId))).limit(1);
+        } else {
+          existing = await db.select().from(schema.categories).where(eq(schema.categories.slug, uniqueSlug)).limit(1);
+        }
+
+        if (existing.length === 0) break;
+        uniqueSlug = `${baseSlug}-${counter++}`;
+      }
+
+      if (catId) {
+        await db.update(schema.categories).set({
+          nom,
+          slug: uniqueSlug,
+          parentId: parentIdVal,
+          description,
+          ordre,
+          actif,
+        }).where(eq(schema.categories.id, catId));
+        success = 'Catégorie mise à jour.';
+      } else {
+        await db.insert(schema.categories).values({
+          nom,
+          slug: uniqueSlug,
+          parentId: parentIdVal,
+          description,
+          ordre,
+          actif,
+        });
+        success = 'Catégorie créée avec succès.';
+      }
+    }
+  }
+}
+
+// Check edit query param
+const editId = Astro.url.searchParams.get('edit') ? parseInt(Astro.url.searchParams.get('edit')!, 10) : 0;
+let editCat: typeof schema.categories.$inferSelect | null = null;
+if (editId) {
+  const res = await db.select().from(schema.categories).where(eq(schema.categories.id, editId)).limit(1);
+  editCat = res[0] || null;
+}
+
+// Fetch all categories with product counts and parent names
+const allCategories = await db.select().from(schema.categories).orderBy(schema.categories.ordre);
+const parentes = allCategories.filter((c) => c.parentId === null);
+const catMap = new Map(allCategories.map((c) => [c.id, c.nom]));
+
+// Calculate product counts
+const productCountsRes = await db
+  .select({
+    categorieId: schema.produits.categorieId,
+    count: sql<number>`count(*)`,
+  })
+  .from(schema.produits)
+  .groupBy(schema.produits.categorieId);
+
+const productCounts = new Map(productCountsRes.map((r) => [r.categorieId, r.count]));
+---
+
+<AdminLayout title="Catégories">
+  {errors.map((e) => (
+    <div class="alert-admin alert-admin-danger"><i class="fas fa-exclamation-circle"></i> {e}</div>
+  ))}
+  {success && (
+    <div class="alert-admin alert-admin-success"><i class="fas fa-check-circle"></i> {success}</div>
+  )}
+
+  <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:24px;align-items:start;">
+
+    <!-- Form Column -->
+    <div class="card">
+      <div class="card-header">
+        <h3>{editCat ? 'Modifier la catégorie' : 'Nouvelle catégorie'}</h3>
+        {editCat && (
+          <a href="/admin/categories" class="btn-admin btn-admin-outline btn-admin-sm">Annuler</a>
+        )}
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <input type="hidden" name="action" value="save" />
+          <input type="hidden" name="cat_id" value={editCat ? editCat.id : 0} />
+
+          <div class="admin-form-group">
+            <label>Nom <span class="req">*</span></label>
+            <input type="text" name="nom" class="admin-form-control" value={editCat?.nom || ''} required />
+          </div>
+
+          <div class="admin-form-group">
+            <label>Catégorie parente</label>
+            <select name="parent_id" class="admin-form-control">
+              <option value="">— Aucune (catégorie principale) —</option>
+              {parentes.map((p) => (
+                (!editCat || p.id !== editCat.id) && (
+                  <option value={p.id} selected={editCat?.parentId === p.id}>{p.nom}</option>
+                )
+              ))}
+            </select>
+          </div>
+
+          <div class="admin-form-group">
+            <label>Description</label>
+            <textarea name="description" class="admin-form-control" rows="3">{editCat?.description || ''}</textarea>
+          </div>
+
+          <div class="admin-form-row">
+            <div class="admin-form-group">
+              <label>Ordre d'affichage</label>
+              <input type="number" name="ordre" class="admin-form-control" value={editCat?.ordre ?? 0} min="0" />
+            </div>
+            <div class="admin-form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;">
+              <label class="admin-checkbox-wrap">
+                <input type="checkbox" name="actif" value="1" checked={editCat ? editCat.actif === 1 : true} />
+                <span>Active</span>
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-admin btn-admin-primary" style="width:100%;justify-content:center;">
+            <i class="fas fa-save"></i> {editCat ? 'Mettre à jour' : 'Créer la catégorie'}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Table Column -->
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="fas fa-tags" style="margin-right:8px;"></i>Toutes les catégories ({allCategories.length})</h3>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Parente</th>
+              <th>Produits</th>
+              <th>Ordre</th>
+              <th>Statut</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allCategories.length === 0 ? (
+              <tr><td colspan="6" style="text-align:center;color:#aaa;padding:30px;">Aucune catégorie</td></tr>
+            ) : (
+              allCategories.map((c) => {
+                const parentName = c.parentId ? catMap.get(c.parentId) || '—' : '—';
+                const count = productCounts.get(c.id) || 0;
+                return (
+                  <tr>
+                    <td>
+                      <strong>{c.parentId ? `└─ ${c.nom}` : c.nom}</strong>
+                      <div style="font-size:0.75rem;color:#999;">{c.slug}</div>
+                    </td>
+                    <td>{parentName}</td>
+                    <td><span class="badge-admin badge-info">{count} produit(s)</span></td>
+                    <td>{c.ordre}</td>
+                    <td>
+                      {c.actif === 1 ? (
+                        <span class="badge-admin badge-success">Active</span>
+                      ) : (
+                        <span class="badge-admin badge-secondary">Inactive</span>
+                      )}
+                    </td>
+                    <td>
+                      <div class="action-btns">
+                        <a href={`/admin/categories?edit=${c.id}`} class="btn-admin btn-admin-outline btn-admin-sm" title="Modifier">
+                          <i class="fas fa-edit"></i>
+                        </a>
+                        <form method="post" style="margin:0;display:inline;" onsubmit="return confirm('Supprimer cette catégorie ?');">
+                          <input type="hidden" name="action" value="delete" />
+                          <input type="hidden" name="cat_id" value={c.id} />
+                          <button type="submit" class="btn-admin btn-admin-danger btn-admin-sm" title="Supprimer">
+                            <i class="fas fa-trash"></i>
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</AdminLayout>

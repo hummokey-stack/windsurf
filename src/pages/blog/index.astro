@@ -1,0 +1,90 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { db, schema } from '../../db';
+import { eq, desc, and } from 'drizzle-orm';
+
+const url = new URL(Astro.request.url);
+const catFil = url.searchParams.get('cat') || '';
+
+let conditions = [eq(schema.blog.actif, 1)];
+if (catFil) {
+  conditions.push(eq(schema.blog.categorie, catFil));
+}
+
+const articles = await db
+  .select()
+  .from(schema.blog)
+  .where(and(...conditions))
+  .orderBy(desc(schema.blog.dateCreation));
+
+const allBlogArticles = await db.select().from(schema.blog).where(eq(schema.blog.actif, 1));
+const blogCats = Array.from(new Set(allBlogArticles.map((a) => a.categorie).filter(Boolean))) as string[];
+---
+
+<Layout title="Blog & Conseils" description="Guides, conseils et actualités sports de glisse.">
+  <div class="page-hero">
+    <div class="container">
+      <nav class="breadcrumb"><a href="/">Accueil</a><span>›</span><span>Blog</span></nav>
+      <h1>📰 Blog & Conseils</h1>
+      <p style="color:rgba(255,255,255,0.75);margin-top:8px;">Guides, spots, entretien et actus sports de glisse</p>
+    </div>
+  </div>
+
+  <div class="container" style="padding:40px 0 60px;">
+    {blogCats.length > 0 && (
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:30px;">
+        <a
+          href="/blog"
+          class={`badge ${!catFil ? 'badge-nouveau' : ''}`}
+          style={`padding:8px 18px;font-size:0.88rem;${!catFil ? '' : 'background:var(--gray-light);color:var(--dark);'}`}
+        >
+          Tous
+        </a>
+        {blogCats.map((bc) => (
+          <a
+            href={`/blog?cat=${encodeURIComponent(bc)}`}
+            class={`badge ${catFil === bc ? 'badge-nouveau' : ''}`}
+            style={`padding:8px 18px;font-size:0.88rem;${catFil === bc ? '' : 'background:var(--gray-light);color:var(--dark);'}`}
+          >
+            {bc}
+          </a>
+        ))}
+      </div>
+    )}
+
+    {articles.length === 0 ? (
+      <div class="cart-empty">
+        <div class="icon">📰</div>
+        <h2>Aucun article pour le moment</h2>
+        <p>Revenez bientôt pour nos prochains articles !</p>
+      </div>
+    ) : (
+      <div class="blog-grid">
+        {articles.map((art) => (
+          <article class="blog-card">
+            <div class="blog-card-img">
+              <a href={`/blog/${art.slug}`}>
+                <img src={art.image || '/assets/images/placeholder.jpg'} alt={art.titre} loading="lazy" />
+              </a>
+            </div>
+            <div class="blog-card-body">
+              {art.categorie && <span class="blog-cat-tag">{art.categorie}</span>}
+              <h2 class="blog-card-title">
+                <a href={`/blog/${art.slug}`}>{art.titre}</a>
+              </h2>
+              <p class="blog-card-excerpt">
+                {(art.extrait || art.contenu || '').substring(0, 130)}…
+              </p>
+              <div class="blog-card-meta">
+                <span><i class="fas fa-calendar" style="margin-right:4px;"></i>{art.dateCreation ? art.dateCreation.substring(0, 10) : ''}</span>
+                <a href={`/blog/${art.slug}`} style="color:var(--primary);font-weight:600;font-size:0.82rem;">
+                  Lire l'article <i class="fas fa-arrow-right"></i>
+                </a>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    )}
+  </div>
+</Layout>

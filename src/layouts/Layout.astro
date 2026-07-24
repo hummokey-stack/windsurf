@@ -1,0 +1,245 @@
+---
+import { db, schema } from '../db';
+import { eq, isNull } from 'drizzle-orm';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+
+// Fetch settings and categories
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || {
+  siteName: 'GlisseShop',
+  slogan: 'Votre spécialiste wingsurf & sports de glisse',
+  logo: '/assets/images/logo.png',
+  livraisonGratuiteMontant: 100,
+  email: 'contact@glisseshop.fr',
+  telephone: '04 00 00 00 00',
+  adresse: '123 Promenade des Sports, 06000 Nice',
+  horaires: 'Lun-Sam 9h-19h • Dim 10h-17h',
+  facebook: 'https://facebook.com/glisseshop',
+  instagram: 'https://instagram.com/glisseshop',
+  metaDescription: 'GlisseShop - Votre spécialiste wingsurf, kitesurf, surf et sports de glisse.',
+};
+
+const siteName = siteSettings.siteName || 'GlisseShop';
+const slogan = siteSettings.slogan || 'Votre spécialiste wingsurf & sports de glisse';
+const pageTitle = title ? `${title} — ${siteName}` : `${siteName} — ${slogan}`;
+const pageDesc = description || siteSettings.metaDescription || '';
+
+// Categories with subcategories
+const parentCategories = await db.select().from(schema.categories).where(eq(schema.categories.actif, 1));
+const mainCats = parentCategories.filter((c) => c.parentId === null).sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+const categoriesWithSubs = mainCats.map((parent) => ({
+  ...parent,
+  subs: parentCategories.filter((sub) => sub.parentId === parent.id).sort((a, b) => (a.ordre || 0) - (b.ordre || 0)),
+}));
+---
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{pageTitle}</title>
+  <meta name="description" content={pageDesc} />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/assets/css/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body>
+
+  <!-- Top Announcement Bar -->
+  <div class="header-top">
+    <span>🚚 Livraison gratuite dès {siteSettings.livraisonGratuiteMontant} € d'achats</span>
+    <span>•</span>
+    <span>📦 Retours sous 30 jours</span>
+    <span>•</span>
+    <span>🔒 Paiement sécurisé</span>
+  </div>
+
+  <!-- Header -->
+  <header id="header">
+    <div class="container">
+      <div class="header-main">
+
+        <!-- Logo -->
+        <a href="/" class="logo">
+          {siteSettings.logo ? (
+            <img src={siteSettings.logo.startsWith('/') ? siteSettings.logo : `/${siteSettings.logo}`} alt={siteName} />
+          ) : (
+            <div class="logo-text">
+              <div class="name">{siteName}</div>
+              <div class="slogan">{slogan}</div>
+            </div>
+          )}
+        </a>
+
+        <!-- Main Navigation -->
+        <nav class="nav-main" id="navMain">
+          <ul>
+            <li><a href="/">Accueil</a></li>
+            {categoriesWithSubs.map((cat) => (
+              <li>
+                <a href={`/categorie/${cat.slug}`}>{cat.nom}</a>
+                {cat.subs.length > 0 && (
+                  <ul class="dropdown-menu">
+                    {cat.subs.map((sub) => (
+                      <li><a href={`/categorie/${sub.slug}`}>{sub.nom}</a></li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+            <li><a href="/promotions">Promos 🔥</a></li>
+            <li><a href="/occasion">Occasion</a></li>
+          </ul>
+        </nav>
+
+        <!-- Header Actions -->
+        <div class="header-actions">
+          <button class="btn-icon" id="btnSearch" title="Rechercher">
+            <i class="fas fa-search"></i>
+          </button>
+          <a href="/panier" class="btn-icon" title="Panier">
+            <i class="fas fa-shopping-cart"></i>
+            <span class="badge-count" id="cartCount">0</span>
+          </a>
+          <button class="btn-hamburger" id="btnHamburger" aria-label="Menu">
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Navigation -->
+  <div class="nav-mobile-overlay" id="mobileOverlay"></div>
+  <nav class="nav-mobile" id="navMobile">
+    <button class="nav-mobile-close" id="closeMobile">&times;</button>
+    <ul>
+      <li><a href="/">🏠 Accueil</a></li>
+      {categoriesWithSubs.map((cat) => (
+        <li><a href={`/categorie/${cat.slug}`}>{cat.nom}</a></li>
+      ))}
+      <li><a href="/promotions">🔥 Promotions</a></li>
+      <li><a href="/occasion">♻️ Occasion</a></li>
+      <li><a href="/blog">📰 Blog</a></li>
+      <li><a href="/contact">📞 Contact</a></li>
+    </ul>
+  </nav>
+
+  <!-- Search Overlay -->
+  <div class="search-overlay" id="searchOverlay">
+    <div class="search-box">
+      <form action="/categorie/all" method="get" role="search">
+        <input type="text" name="q" id="searchInput" placeholder="Rechercher un produit, une marque..." autocomplete="off" />
+        <button type="submit" class="btn btn-primary">Rechercher</button>
+      </form>
+      <div class="search-results" id="searchResults"></div>
+      <div style="text-align:right;margin-top:8px;">
+        <button id="closeSearch" style="background:none;border:none;cursor:pointer;color:#999;font-size:0.85rem;">✕ Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scroll Top Button -->
+  <button class="scroll-top" id="scrollTop" title="Haut de page"><i class="fas fa-chevron-up"></i></button>
+
+  <main>
+    <slot />
+  </main>
+
+  <!-- Footer -->
+  <footer id="footer">
+    <div class="container">
+      <div class="footer-grid">
+
+        <!-- Col 1 : Brand -->
+        <div class="footer-col">
+          <div class="footer-logo">{siteName}<span>Shop</span></div>
+          <p style="margin-top:12px;">{slogan}</p>
+          {siteSettings.email && (
+            <p style="margin-top:10px;"><i class="fas fa-envelope" style="color:var(--secondary);margin-right:6px;"></i>{siteSettings.email}</p>
+          )}
+          {siteSettings.telephone && (
+            <p style="margin-top:6px;"><i class="fas fa-phone" style="color:var(--secondary);margin-right:6px;"></i>{siteSettings.telephone}</p>
+          )}
+          <div class="footer-socials">
+            {siteSettings.facebook && (
+              <a href={siteSettings.facebook} class="footer-social-btn" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f"></i></a>
+            )}
+            {siteSettings.instagram && (
+              <a href={siteSettings.instagram} class="footer-social-btn" target="_blank" rel="noopener" title="Instagram"><i class="fab fa-instagram"></i></a>
+            )}
+            <a href="#" class="footer-social-btn" title="YouTube"><i class="fab fa-youtube"></i></a>
+          </div>
+        </div>
+
+        <!-- Col 2 : Navigation -->
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul>
+            {categoriesWithSubs.slice(0, 6).map((cat) => (
+              <li><a href={`/categorie/${cat.slug}`}><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>{cat.nom}</a></li>
+            ))}
+            <li><a href="/promotions"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Promotions</a></li>
+            <li><a href="/occasion"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Occasion</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3 : Infos -->
+        <div class="footer-col">
+          <h4>Informations</h4>
+          <ul>
+            <li><a href="/a-propos"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>À propos</a></li>
+            <li><a href="/livraison"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Livraison & retours</a></li>
+            <li><a href="/contact"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Contact</a></li>
+            <li><a href="/blog"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Blog</a></li>
+            <li><a href="#"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>CGV</a></li>
+            <li><a href="#"><i class="fas fa-chevron-right" style="font-size:0.7rem;margin-right:6px;"></i>Mentions légales</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4 : Showroom & Newsletter -->
+        <div class="footer-col">
+          <h4>Notre showroom</h4>
+          {siteSettings.adresse && (
+            <p><i class="fas fa-map-marker-alt" style="color:var(--accent);margin-right:6px;"></i>{siteSettings.adresse}</p>
+          )}
+          {siteSettings.horaires && (
+            <p style="margin-top:8px;"><i class="fas fa-clock" style="color:var(--accent);margin-right:6px;"></i>{siteSettings.horaires}</p>
+          )}
+          <h4 style="margin-top:20px;">Newsletter</h4>
+          <p style="font-size:0.82rem;margin-bottom:8px;">Recevez nos bons plans & conseils glisse !</p>
+          <div class="newsletter-form">
+            <input type="email" placeholder="votre@email.fr" />
+            <button type="button"><i class="fas fa-paper-plane"></i></button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; {new Date().getFullYear()} {siteName} — Tous droits réservés</span>
+        <span>
+          <a href="#">CGV</a> &bull;
+          <a href="#">Mentions légales</a> &bull;
+          <a href="#">Politique de confidentialité</a>
+        </span>
+        <span>Paiement sécurisé 🔒 CB, Virement</span>
+      </div>
+    </div>
+  </footer>
+
+  <script is:inline src="/assets/js/main.js"></script>
+</body>
+</html>

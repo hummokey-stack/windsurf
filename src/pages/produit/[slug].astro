@@ -1,0 +1,320 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProductCard from '../../components/ProductCard.astro';
+import { db, schema } from '../../db';
+import { eq, and, ne } from 'drizzle-orm';
+import { formatPrix, calculReduction, imageProduit } from '../../lib/utils';
+
+const { slug } = Astro.params;
+
+if (!slug) {
+  return Astro.redirect('/');
+}
+
+// Find product by slug or id
+let product: typeof schema.produits.$inferSelect | undefined;
+
+const productBySlug = await db.select().from(schema.produits).where(eq(schema.produits.slug, slug)).limit(1);
+if (productBySlug.length > 0) {
+  product = productBySlug[0];
+} else if (!isNaN(Number(slug))) {
+  const productById = await db.select().from(schema.produits).where(eq(schema.produits.id, Number(slug))).limit(1);
+  if (productById.length > 0) {
+    product = productById[0];
+  }
+}
+
+if (!product || product.estActif === 0) {
+  return Astro.redirect('/categorie/all');
+}
+
+// Fetch category info
+let categoryName = '';
+let categorySlug = '';
+if (product.categorieId) {
+  const cat = await db.select().from(schema.categories).where(eq(schema.categories.id, product.categorieId)).limit(1);
+  if (cat.length > 0) {
+    categoryName = cat[0].nom;
+    categorySlug = cat[0].slug;
+  }
+}
+
+// Parse variants & extra images
+let variantes: string[] = [];
+if (product.variantes) {
+  try {
+    const parsed = JSON.parse(product.variantes);
+    if (Array.isArray(parsed)) variantes = parsed;
+  } catch (e) {}
+}
+
+let imagesSecondaires: string[] = [];
+if (product.imagesSecondaires) {
+  try {
+    const parsed = JSON.parse(product.imagesSecondaires);
+    if (Array.isArray(parsed)) imagesSecondaires = parsed;
+  } catch (e) {}
+}
+
+// Fetch similar products in same category
+let similaires: typeof schema.produits.$inferSelect[] = [];
+if (product.categorieId) {
+  similaires = await db
+    .select()
+    .from(schema.produits)
+    .where(and(eq(schema.produits.categorieId, product.categorieId), eq(schema.produits.estActif, 1), ne(schema.produits.id, product.id)))
+    .limit(4);
+}
+
+// Fetch settings for free shipping threshold
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || { livraisonGratuiteMontant: 100 };
+const seuilLivraison = siteSettings.livraisonGratuiteMontant || 100;
+
+const imgPrincipale = imageProduit(product.imagePrincipale);
+const reduc = (product.ancienPrix && product.ancienPrix > product.prix)
+  ? calculReduction(product.ancienPrix, product.prix)
+  : 0;
+
+const stock = product.stock || 0;
+const isRupture = stock === 0;
+
+const niveauLabelMap: Record<string, string> = {
+  debutant: 'Débutant',
+  intermediaire: 'Intermédiaire',
+  expert: 'Expert',
+  tous: 'Tous niveaux',
+};
+---
+
+<Layout title={product.nom} description={product.descriptionCourte || ''}>
+  <div style="background:var(--light);padding:6px 0;">
+    <div class="container">
+      <nav class="breadcrumb">
+        <a href="/">Accueil</a>
+        {categorySlug && (
+          <>
+            <span>›</span>
+            <a href={`/categorie/${categorySlug}`}>{categoryName}</a>
+          </>
+        )}
+        <span>›</span>
+        <span>{product.nom}</span>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container" style="padding-top:30px;padding-bottom:50px;">
+    <div class="product-layout">
+
+      <!-- Galerie -->
+      <div class="product-gallery">
+        <img id="mainImg" class="main-img" src={imgPrincipale} alt={product.nom} />
+        {imagesSecondaires.length > 0 && (
+          <div class="product-thumbnails">
+            <img
+              src={imgPrincipale}
+              class="active thumbnail-img"
+              alt={product.nom}
+            />
+            {imagesSecondaires.map((img) => (
+              <img
+                src={imageProduit(img)}
+                class="thumbnail-img"
+                alt={product.nom}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <!-- Infos produit -->
+      <div class="product-info">
+        <div class="product-meta">
+          {product.marque && <span class="product-brand-tag">{product.marque}</span>}
+          {product.estNouveaute === 1 && <span class="badge badge-nouveau">Nouveau</span>}
+          {product.estPromo === 1 && <span class="badge badge-promo">Promo -{reduc}%</span>}
+          {product.estOccasion === 1 && <span class="badge badge-occasion">Occasion</span>}
+        </div>
+
+        <h1>{product.nom}</h1>
+
+        <!-- Prix -->
+        <div class="product-price-block">
+          <span class="price-main">{formatPrix(product.prix)}</span>
+          {product.ancienPrix && product.ancienPrix > product.prix && (
+            <>
+              <span class="price-old">{formatPrix(product.ancienPrix)}</span>
+              {reduc > 0 && <span class="discount-tag">-{reduc}%</span>}
+            </>
+          )}
+        </div>
+
+        {product.descriptionCourte && <p class="product-desc-short">{product.descriptionCourte}</p>}
+
+        <!-- Variantes -->
+        {variantes.length > 0 && (
+          <div class="product-variantes">
+            <label>Taille / Volume / Surface :</label>
+            <div class="variante-options" id="varianteOptions">
+              {variantes.map((v) => (
+                <button type="button" class="variante-btn" data-val={v}>{v}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <!-- Stock -->
+        <div class="product-stock-indicator">
+          {stock > 5 ? (
+            <>
+              <div class="stock-dot ok"></div>
+              <span class="stock-ok">En stock ({stock} disponibles)</span>
+            </>
+          ) : stock > 0 ? (
+            <>
+              <div class="stock-dot low"></div>
+              <span class="stock-low">Dernières pièces ({stock} restant{stock > 1 ? 's' : ''})</span>
+            </>
+          ) : (
+            <>
+              <div class="stock-dot none"></div>
+              <span class="stock-none">Rupture de stock</span>
+            </>
+          )}
+        </div>
+
+        {product.niveau && product.niveau !== 'tous' && (
+          <div style="margin-bottom:16px;font-size:0.9rem;">
+            <strong>Niveau :</strong> {niveauLabelMap[product.niveau] || product.niveau}
+          </div>
+        )}
+
+        <!-- Actions -->
+        <div class="product-actions">
+          <button
+            class="btn btn-accent btn-add-cart"
+            id="btnAddCart"
+            disabled={isRupture}
+          >
+            <i class="fas fa-cart-plus"></i>
+            {isRupture ? 'Rupture de stock' : 'Ajouter au panier'}
+          </button>
+        </div>
+
+        <!-- Delivery note -->
+        {product.prix >= seuilLivraison ? (
+          <div class="livraison-gratuite-msg">
+            <i class="fas fa-truck"></i> <strong>Livraison gratuite</strong> pour ce produit !
+          </div>
+        ) : (
+          <div style="font-size:0.85rem;color:#666;margin-bottom:16px;">
+            <i class="fas fa-truck" style="color:var(--primary);margin-right:6px;"></i>
+            Livraison gratuite dès {formatPrix(seuilLivraison)} d'achat.
+            Plus que {formatPrix(seuilLivraison - product.prix)} pour en bénéficier !
+          </div>
+        )}
+
+      </div>
+    </div>
+
+    <!-- Onglets description -->
+    <div class="product-tabs">
+      <div class="tabs-nav">
+        <button class="tab-btn active" data-tab="tabDesc">Description</button>
+        <button class="tab-btn" data-tab="tabCaract">Caractéristiques</button>
+        <button class="tab-btn" data-tab="tabLivraison">Livraison & Retours</button>
+      </div>
+
+      <div id="tabDesc" class="tab-content active article-content">
+        {product.description ? (
+          <div set:html={product.description} />
+        ) : (
+          <p>Description détaillée non disponible pour le moment.</p>
+        )}
+      </div>
+
+      <div id="tabCaract" class="tab-content">
+        <ul>
+          {product.marque && <li><strong>Marque :</strong> {product.marque}</li>}
+          {product.niveau && <li><strong>Niveau :</strong> {niveauLabelMap[product.niveau] || product.niveau}</li>}
+          {variantes.length > 0 && <li><strong>Tailles disponibles :</strong> {variantes.join(', ')}</li>}
+          {product.estOccasion === 1 && <li><strong>État :</strong> Occasion (reconditionné)</li>}
+        </ul>
+      </div>
+
+      <div id="tabLivraison" class="tab-content">
+        <h3>Livraison</h3>
+        <ul>
+          <li>Livraison standard en 3-5 jours ouvrés</li>
+          <li>Livraison express 24h disponible (supplément)</li>
+          <li>Livraison gratuite dès {formatPrix(seuilLivraison)} d'achat</li>
+          <li>Retrait en magasin gratuit (Nice)</li>
+        </ul>
+        <h3 style="margin-top:16px;">Retours</h3>
+        <ul>
+          <li>30 jours pour retourner votre commande</li>
+          <li>Article en état d'origine et non utilisé</li>
+          <li>Remboursement sous 5 jours ouvrés</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Produits similaires -->
+    {similaires.length > 0 && (
+      <div style="margin-top:60px;margin-bottom:50px;">
+        <h2 style="font-size:1.8rem;margin-bottom:30px;">Produits similaires</h2>
+        <div class="products-grid">
+          {similaires.map((p) => (
+            <ProductCard product={p} />
+          ))}
+        </div>
+      </div>
+    )}
+
+  </div>
+
+  <script is:inline define:vars={{ productId: product.id, productNom: product.nom, productPrix: product.prix, productImg: imgPrincipale }}>
+    let varianteSelectionnee = '';
+
+    // Thumbnails
+    document.querySelectorAll('.thumbnail-img').forEach(img => {
+      img.addEventListener('click', function() {
+        document.getElementById('mainImg').src = this.src;
+        document.querySelectorAll('.thumbnail-img').forEach(i => i.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+
+    // Variants
+    document.querySelectorAll('.variante-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.variante-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        varianteSelectionnee = this.getAttribute('data-val') || '';
+      });
+    });
+
+    // Add to cart
+    const btnAdd = document.getElementById('btnAddCart');
+    if (btnAdd) {
+      btnAdd.addEventListener('click', function() {
+        if (typeof addToCart === 'function') {
+          addToCart(productId, productNom, productPrix, productImg, varianteSelectionnee);
+        }
+      });
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const targetId = this.getAttribute('data-tab');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        this.classList.add('active');
+        const targetContent = document.getElementById(targetId);
+        if (targetContent) targetContent.classList.add('active');
+      });
+    });
+  </script>
+</Layout>

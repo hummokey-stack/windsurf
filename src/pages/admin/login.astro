@@ -1,0 +1,141 @@
+---
+import { db, schema } from '../../db';
+import { eq } from 'drizzle-orm';
+import { COOKIE_NAME, signAdminToken, verifyPassword } from '../../lib/auth';
+
+// If already logged in, redirect to /admin
+if (Astro.locals.admin) {
+  return Astro.redirect('/admin');
+}
+
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || { siteName: 'GlisseShop' };
+const siteName = siteSettings.siteName || 'GlisseShop';
+
+let error = '';
+let loginValue = '';
+
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    loginValue = (formData.get('login') as string || '').trim();
+    const password = (formData.get('password') as string || '').trim();
+
+    if (!loginValue || !password) {
+      error = 'Veuillez renseigner votre identifiant et mot de passe.';
+    } else {
+      const adminUsers = await db.select().from(schema.admin).where(eq(schema.admin.login, loginValue)).limit(1);
+      const user = adminUsers[0];
+
+      if (user && (await verifyPassword(password, user.password))) {
+        const token = await signAdminToken({ id: user.id, login: user.login });
+
+        Astro.cookies.set(COOKIE_NAME, token, {
+          path: '/',
+          httpOnly: true,
+          secure: import.meta.env.PROD,
+          sameSite: 'lax',
+          maxAge: 60 * 60 * 24, // 24 hours
+        });
+
+        const redirectUrl = Astro.url.searchParams.get('redirect') || '/admin';
+        const safeRedirect = /^\/admin(\/[a-zA-Z0-9_\-\.\?&=]*)?$/.test(redirectUrl) ? redirectUrl : '/admin';
+        
+        return Astro.redirect(safeRedirect);
+      } else {
+        error = 'Identifiant ou mot de passe incorrect.';
+      }
+    }
+  } catch (err) {
+    error = 'Une erreur est survenue lors de la connexion.';
+  }
+}
+---
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connexion Admin — {siteName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="/assets/css/admin.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="admin-body">
+
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="name">{siteName}</div>
+      <div class="sub">Interface d'administration</div>
+    </div>
+
+    <h2><i class="fas fa-lock" style="margin-right:8px;color:var(--admin-primary);"></i>Connexion</h2>
+
+    {error && (
+      <div class="alert-admin alert-admin-danger">
+        <i class="fas fa-exclamation-circle"></i> {error}
+      </div>
+    )}
+
+    <form method="post">
+      <div class="admin-form-group">
+        <label for="login">Identifiant</label>
+        <div style="position:relative;">
+          <i class="fas fa-user" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#aaa;"></i>
+          <input type="text" id="login" name="login"
+            class="admin-form-control"
+            style="padding-left:38px;"
+            value={loginValue}
+            placeholder="admin"
+            autocomplete="username"
+            required />
+        </div>
+      </div>
+
+      <div class="admin-form-group">
+        <label for="password">Mot de passe</label>
+        <div style="position:relative;">
+          <i class="fas fa-lock" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#aaa;"></i>
+          <input type="password" id="password" name="password"
+            class="admin-form-control"
+            style="padding-left:38px;"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required />
+          <button type="button" id="togglePwd"
+            style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#aaa;">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-admin btn-admin-primary btn-admin-lg" style="width:100%;justify-content:center;margin-top:8px;">
+        <i class="fas fa-sign-in-alt"></i> Se connecter
+      </button>
+    </form>
+
+    <div class="login-footer-text">
+      <a href="/"><i class="fas fa-arrow-left"></i> Retour au site</a>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+document.getElementById('togglePwd')?.addEventListener('click', function() {
+  const pwd = document.getElementById('password');
+  const icon = this.querySelector('i');
+  if (pwd && icon) {
+    if (pwd.type === 'password') {
+      pwd.type = 'text';
+      icon.className = 'fas fa-eye-slash';
+    } else {
+      pwd.type = 'password';
+      icon.className = 'fas fa-eye';
+    }
+  }
+});
+</script>
+</body>
+</html>

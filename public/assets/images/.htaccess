@@ -1,0 +1,5 @@
+# Rediriger placeholder.jpg vers placeholder.svg si le jpg n'existe pas
+# (Certains hébergeurs supportent cette directive)
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^placeholder\.jpg$ placeholder.svg [L]

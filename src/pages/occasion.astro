@@ -1,0 +1,59 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ProductCard from '../components/ProductCard.astro';
+import { db, schema } from '../db';
+import { eq, and } from 'drizzle-orm';
+
+const occasions = await db
+  .select()
+  .from(schema.produits)
+  .where(and(eq(schema.produits.estActif, 1), eq(schema.produits.estOccasion, 1)));
+---
+
+<Layout title="Matériel d'occasion" description="Matériel de glisse d'occasion révisé et certifié.">
+  <div class="page-hero">
+    <div class="container">
+      <nav class="breadcrumb"><a href="/">Accueil</a><span>›</span><span>Occasion</span></nav>
+      <h1>♻️ Matériel d'occasion</h1>
+      <p style="color:rgba(255,255,255,0.75);margin-top:8px;">Matériel contrôlé et certifié par nos experts</p>
+    </div>
+  </div>
+
+  <div class="bandeau-livraison" style="background:linear-gradient(135deg,#FF6B35,#ff9a6c);">
+    <span>♻️ Chaque article contrôlé et noté</span>
+    <span>•</span>
+    <span>💯 Descriptions honnêtes</span>
+    <span>•</span>
+    <span>🔒 Même garantie retours 30j</span>
+  </div>
+
+  <div class="container" style="padding:40px 0 60px;">
+    {occasions.length === 0 ? (
+      <div class="cart-empty">
+        <div class="icon">♻️</div>
+        <h2>Aucun produit d'occasion disponible</h2>
+        <p>Nous renouvelons régulièrement notre stock d'occasion. Revenez bientôt !</p>
+        <a href="/" class="btn btn-primary mt-3">Voir les produits neufs</a>
+      </div>
+    ) : (
+      <div>
+        <div style="background:rgba(255,107,53,0.08);border-radius:10px;padding:20px;margin-bottom:30px;display:flex;gap:20px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <strong>🔍 Notre contrôle qualité</strong><br />
+            <span style="color:#666;font-size:0.88rem;">Chaque article est inspecté, nettoyé et décrit avec honnêteté (état, rayures, défauts éventuels).</span>
+          </div>
+          <div style="flex:1;min-width:200px;">
+            <strong>💰 Économies garanties</strong><br />
+            <span style="color:#666;font-size:0.88rem;">Jusqu'à -60% par rapport au prix neuf sur du matériel de qualité.</span>
+          </div>
+        </div>
+        <p style="color:#666;margin-bottom:30px;"><strong>{occasions.length}</strong> produit(s) d'occasion disponible(s)</p>
+        <div class="products-grid">
+          {occasions.map((p) => (
+            <ProductCard product={p} />
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+</Layout>

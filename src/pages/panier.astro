@@ -1,0 +1,208 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { db, schema } from '../db';
+
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || { livraisonGratuiteMontant: 100 };
+const livraisonSeuil = siteSettings.livraisonGratuiteMontant || 100;
+---
+
+<Layout title="Mon Panier">
+  <div class="page-hero" style="padding:40px 0;">
+    <div class="container">
+      <h1>🛒 Mon panier</h1>
+      <nav class="breadcrumb"><a href="/">Accueil</a><span>›</span><span>Panier</span></nav>
+    </div>
+  </div>
+
+  <div class="container" style="padding:40px 0 60px;">
+
+    <!-- Panier vide -->
+    <div id="cartEmpty" class="cart-empty" style="display:none;">
+      <div class="icon">🛒</div>
+      <h2>Votre panier est vide</h2>
+      <p>Découvrez notre sélection de matériel de glisse et ajoutez des articles à votre panier.</p>
+      <a href="/" class="btn btn-primary mt-3">Continuer mes achats</a>
+    </div>
+
+    <!-- Panier avec articles -->
+    <div id="cartFull" style="display:none;">
+      <div class="cart-layout">
+
+        <!-- Articles -->
+        <div>
+          <table class="cart-table" id="cartTable">
+            <thead>
+              <tr>
+                <th colspan="2">Produit</th>
+                <th>Prix unitaire</th>
+                <th>Quantité</th>
+                <th>Total</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="cartBody">
+              <!-- Rempli par JS -->
+            </tbody>
+          </table>
+          <div style="margin-top:16px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <a href="/" class="btn btn-outline">
+              <i class="fas fa-arrow-left"></i> Continuer mes achats
+            </a>
+            <button class="btn btn-outline" id="btnClearCart" style="color:var(--danger);border-color:var(--danger);">
+              <i class="fas fa-trash"></i> Vider le panier
+            </button>
+          </div>
+        </div>
+
+        <!-- Récapitulatif -->
+        <div class="cart-summary">
+          <h3>Récapitulatif</h3>
+          <div class="summary-row">
+            <span>Sous-total</span>
+            <span id="summarySubtotal">0,00 €</span>
+          </div>
+          <div class="summary-row">
+            <span>Livraison</span>
+            <span id="summaryLivraison">—</span>
+          </div>
+          <div id="livraisonMsg" class="livraison-gratuite-msg" style="display:none;">
+            <i class="fas fa-truck"></i> <strong>Livraison gratuite</strong> appliquée !
+          </div>
+          <div id="livraisonProgress" style="display:none;font-size:0.85rem;color:#666;margin:8px 0;"></div>
+          <div class="summary-row total">
+            <span>Total</span>
+            <span id="summaryTotal">0,00 €</span>
+          </div>
+          <a href="/commande" class="btn btn-accent btn-lg" style="width:100%;justify-content:center;margin-top:16px;">
+            <i class="fas fa-lock"></i> Commander
+          </a>
+          <div style="text-align:center;margin-top:12px;font-size:0.8rem;color:#999;">
+            <i class="fas fa-shield-alt" style="margin-right:4px;"></i>Paiement 100% sécurisé
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script is:inline define:vars={{ livraisonSeuil }}>
+    const LIVRAISON_SEUIL = Number(livraisonSeuil || 100);
+    const LIVRAISON_FRAIS = 9.90;
+
+    function formatEur(n) {
+      return n.toFixed(2).replace('.', ',') + ' €';
+    }
+
+    function renderCart() {
+      const cart = typeof getCart === 'function' ? getCart() : [];
+      const emptyDiv = document.getElementById('cartEmpty');
+      const fullDiv  = document.getElementById('cartFull');
+      const body     = document.getElementById('cartBody');
+
+      if (!cart || cart.length === 0) {
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        if (fullDiv) fullDiv.style.display = 'none';
+        return;
+      }
+
+      if (emptyDiv) emptyDiv.style.display = 'none';
+      if (fullDiv) fullDiv.style.display = 'block';
+      if (!body) return;
+
+      body.innerHTML = '';
+
+      let subtotal = 0;
+      cart.forEach((item, index) => {
+        const lineTotal = item.prix * item.quantite;
+        subtotal += lineTotal;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="width:70px;">
+            <img src="${item.image.startsWith('/') ? item.image : '/' + item.image}" alt="${item.nom}" class="cart-item-img" />
+          </td>
+          <td>
+            <a href="/produit/${item.id}" style="font-weight:600;color:var(--dark);">${item.nom}</a>
+            ${item.variante ? `<div style="font-size:0.8rem;color:#777;margin-top:2px;">Taille / Option : <strong>${item.variante}</strong></div>` : ''}
+          </td>
+          <td style="white-space:nowrap;">${formatEur(item.prix)}</td>
+          <td>
+            <input type="number" min="1" max="99" value="${item.quantite}" class="cart-qty-input" data-key="${item.key}" />
+          </td>
+          <td style="font-weight:700;white-space:nowrap;">${formatEur(lineTotal)}</td>
+          <td>
+            <button class="cart-remove-btn" data-key="${item.key}" title="Supprimer">&times;</button>
+          </td>
+        `;
+        body.appendChild(tr);
+      });
+
+      // Quantity inputs
+      body.querySelectorAll('.cart-qty-input').forEach(input => {
+        input.addEventListener('change', function() {
+          const key = this.getAttribute('data-key');
+          if (typeof updateQuantityByKey === 'function') {
+            updateQuantityByKey(key, this.value);
+            renderCart();
+          }
+        });
+      });
+
+      // Delete buttons
+      body.querySelectorAll('.cart-remove-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const key = this.getAttribute('data-key');
+          if (typeof removeFromCartByKey === 'function') {
+            removeFromCartByKey(key);
+            renderCart();
+          }
+        });
+      });
+
+      // Summary
+      const livraisonFrais = subtotal >= LIVRAISON_SEUIL ? 0 : LIVRAISON_FRAIS;
+      const total = subtotal + livraisonFrais;
+
+      const subElem = document.getElementById('summarySubtotal');
+      const livElem = document.getElementById('summaryLivraison');
+      const totElem = document.getElementById('summaryTotal');
+      const msgElem = document.getElementById('livraisonMsg');
+      const prgElem = document.getElementById('livraisonProgress');
+
+      if (subElem) subElem.textContent = formatEur(subtotal);
+      if (totElem) totElem.textContent = formatEur(total);
+
+      if (subtotal >= LIVRAISON_SEUIL) {
+        if (livElem) livElem.innerHTML = '<span style="color:var(--secondary);font-weight:600;">Gratuite !</span>';
+        if (msgElem) msgElem.style.display = 'block';
+        if (prgElem) prgElem.style.display = 'none';
+      } else {
+        if (livElem) livElem.textContent = formatEur(LIVRAISON_FRAIS);
+        if (msgElem) msgElem.style.display = 'none';
+        if (prgElem) {
+          const manque = LIVRAISON_SEUIL - subtotal;
+          prgElem.style.display = 'block';
+          prgElem.innerHTML = `🚚 Plus que <strong>${formatEur(manque)}</strong> pour la livraison gratuite !`;
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderCart();
+
+      const btnClear = document.getElementById('btnClearCart');
+      if (btnClear) {
+        btnClear.addEventListener('click', () => {
+          if (confirm('Voulez-vous vraiment vider votre panier ?')) {
+            if (typeof saveCart === 'function') {
+              saveCart([]);
+              renderCart();
+            }
+          }
+        });
+      }
+    });
+  </script>
+</Layout>

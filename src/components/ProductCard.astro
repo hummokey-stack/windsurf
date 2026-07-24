@@ -1,0 +1,71 @@
+---
+import { formatPrix, calculReduction, imageProduit } from '../lib/utils';
+import type { schema } from '../db';
+
+type Product = typeof schema.produits.$inferSelect;
+
+interface Props {
+  product: Product;
+}
+
+const { product: p } = Astro.props;
+const imgSrc = imageProduit(p.imagePrincipale);
+const reduc = (p.ancienPrix && p.ancienPrix > p.prix) ? calculReduction(p.ancienPrix, p.prix) : 0;
+const stock = p.stock || 0;
+const isRupture = stock === 0;
+const isLowStock = stock > 0 && stock <= 5;
+---
+
+<div class="product-card">
+  <div class="product-card-img">
+    <a href={`/produit/${p.slug}`}>
+      <img src={imgSrc} alt={p.nom} loading="lazy" />
+    </a>
+    <div class="product-card-badges">
+      {p.estNouveaute === 1 && <span class="badge badge-nouveau">Nouveau</span>}
+      {p.estPromo === 1 && <span class="badge badge-promo">-{reduc}%</span>}
+      {p.estOccasion === 1 && <span class="badge badge-occasion">Occasion</span>}
+      {isRupture && <span class="badge badge-rupture">Rupture</span>}
+    </div>
+    <div class="product-card-actions">
+      <button
+        class="btn-icon"
+        onclick={`addToCart(${p.id}, ${JSON.stringify(p.nom)}, ${p.prix}, ${JSON.stringify(imgSrc)}, "")`}
+        title="Ajouter au panier"
+        disabled={isRupture}
+      >
+        <i class="fas fa-shopping-cart"></i>
+      </button>
+    </div>
+  </div>
+  <div class="product-card-body">
+    {p.marque && <div class="product-brand">{p.marque}</div>}
+    <h3 class="product-name">
+      <a href={`/produit/${p.slug}`}>{p.nom}</a>
+    </h3>
+    <div class="product-price">
+      <span class="price-new">{formatPrix(p.prix)}</span>
+      {p.ancienPrix && p.ancienPrix > p.prix && (
+        <>
+          <span class="price-old">{formatPrix(p.ancienPrix)}</span>
+          {reduc > 0 && <span class="price-discount">-{reduc}%</span>}
+        </>
+      )}
+    </div>
+    {stock > 5 ? (
+      <div class="product-stock stock-ok"><i class="fas fa-circle" style="font-size:0.55rem;margin-right:4px;"></i>En stock</div>
+    ) : isLowStock ? (
+      <div class="product-stock stock-low"><i class="fas fa-circle" style="font-size:0.55rem;margin-right:4px;"></i>Dernières pièces</div>
+    ) : (
+      <div class="product-stock stock-none"><i class="fas fa-times-circle" style="font-size:0.8rem;margin-right:4px;"></i>Rupture de stock</div>
+    )}
+    <button
+      class="btn btn-primary btn-add"
+      onclick={`addToCart(${p.id}, ${JSON.stringify(p.nom)}, ${p.prix}, ${JSON.stringify(imgSrc)}, "")`}
+      disabled={isRupture}
+    >
+      <i class="fas fa-cart-plus"></i>
+      {isRupture ? 'Rupture' : 'Ajouter au panier'}
+    </button>
+  </div>
+</div>

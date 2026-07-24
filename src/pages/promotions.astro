@@ -1,0 +1,41 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ProductCard from '../components/ProductCard.astro';
+import { db, schema } from '../db';
+import { eq, and } from 'drizzle-orm';
+
+const promos = await db
+  .select()
+  .from(schema.produits)
+  .where(and(eq(schema.produits.estActif, 1), eq(schema.produits.estPromo, 1)));
+---
+
+<Layout title="Promotions" description="Les meilleures affaires du moment sur le matériel de glisse.">
+  <div class="page-hero">
+    <div class="container">
+      <nav class="breadcrumb"><a href="/">Accueil</a><span>›</span><span>Promotions</span></nav>
+      <h1>🔥 Promotions</h1>
+      <p style="color:rgba(255,255,255,0.75);margin-top:8px;">Les meilleures affaires du moment</p>
+    </div>
+  </div>
+
+  <div class="container" style="padding:40px 0 60px;">
+    {promos.length === 0 ? (
+      <div class="cart-empty">
+        <div class="icon">🔥</div>
+        <h2>Aucune promotion en cours</h2>
+        <p>Revenez bientôt, de nouvelles promotions arrivent régulièrement !</p>
+        <a href="/" class="btn btn-primary mt-3">Retour à l'accueil</a>
+      </div>
+    ) : (
+      <div>
+        <p style="color:#666;margin-bottom:30px;"><strong>{promos.length}</strong> produit(s) en promotion</p>
+        <div class="products-grid">
+          {promos.map((p) => (
+            <ProductCard product={p} />
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+</Layout>

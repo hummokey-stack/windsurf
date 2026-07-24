@@ -1,0 +1,271 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { db, schema } from '../db';
+import { genererReference, formatPrix } from '../lib/utils';
+
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || { livraisonGratuiteMontant: 100 };
+const livraisonSeuil = siteSettings.livraisonGratuiteMontant || 100;
+const livraisonFrais = 9.90;
+
+let errors: string[] = [];
+let success = false;
+let reference = '';
+let totalCommande = 0;
+
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const prenom = formData.get('prenom')?.toString().trim() || '';
+    const nom = formData.get('nom')?.toString().trim() || '';
+    const email = formData.get('email')?.toString().trim() || '';
+    const telephone = formData.get('telephone')?.toString().trim() || '';
+    const adresse = formData.get('adresse')?.toString().trim() || '';
+    const cp = formData.get('cp')?.toString().trim() || '';
+    const ville = formData.get('ville')?.toString().trim() || '';
+    const articlesJson = formData.get('articles_json')?.toString() || '[]';
+    const sousTotal = parseFloat(formData.get('sous_total')?.toString() || '0');
+
+    // Validation
+    if (!prenom) errors.push('Le prénom est obligatoire.');
+    if (!nom) errors.push('Le nom est obligatoire.');
+    if (!email || !email.includes('@')) errors.push('Email invalide.');
+    if (!adresse) errors.push('L\'adresse est obligatoire.');
+    if (!cp || !/^\d{5}$/.test(cp)) errors.push('Code postal invalide (5 chiffres).');
+    if (!ville) errors.push('La ville est obligatoire.');
+
+    let articles: any[] = [];
+    try {
+      articles = JSON.parse(articlesJson);
+    } catch (e) {}
+
+    if (!Array.isArray(articles) || articles.length === 0) {
+      errors.push('Votre panier est vide.');
+    }
+
+    if (errors.length === 0) {
+      const fraisLivraison = sousTotal >= livraisonSeuil ? 0 : livraisonFrais;
+      totalCommande = sousTotal + fraisLivraison;
+      const adresseComplete = `${prenom} ${nom}, ${adresse}, ${cp} ${ville}`;
+      reference = genererReference();
+
+      await db.insert(schema.commandes).values({
+        reference,
+        clientNom: `${prenom} ${nom}`,
+        clientEmail: email,
+        clientTelephone: telephone,
+        adresseLivraison: adresseComplete,
+        articles: articlesJson,
+        sousTotal,
+        fraisLivraison,
+        total: totalCommande,
+        statut: 'en_attente',
+      });
+
+      success = true;
+    }
+  } catch (e: any) {
+    errors.push('Une erreur est survenue lors du traitement de la commande.');
+  }
+}
+---
+
+<Layout title={success ? 'Confirmation de commande' : 'Commander'}>
+  <div class="page-hero" style="padding:40px 0;">
+    <div class="container">
+      <h1>💳 {success ? 'Commande confirmée' : 'Commander'}</h1>
+      <nav class="breadcrumb">
+        <a href="/">Accueil</a><span>›</span>
+        <a href="/panier">Panier</a><span>›</span>
+        <span>Commande</span>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container" style="padding:40px 0 60px;">
+
+    {success ? (
+      <div style="text-align:center;padding:60px 20px;">
+        <div style="font-size:5rem;margin-bottom:20px;">✅</div>
+        <h2 style="font-size:2rem;color:var(--secondary);margin-bottom:10px;">Merci pour votre commande !</h2>
+        <p style="font-size:1.1rem;color:#444;margin-bottom:8px;">
+          Votre numéro de commande : <strong>{reference}</strong>
+        </p>
+        <p style="color:#666;max-width:500px;margin:0 auto 24px;">
+          Un e-mail de confirmation vous a été envoyé. Notre équipe prépare vos articles avec soin.
+        </p>
+        <div style="font-size:1.2rem;font-weight:700;color:var(--dark);margin-bottom:24px;">
+          Total payé : {formatPrix(totalCommande)}
+        </div>
+        <a href="/" class="btn btn-primary btn-lg">Retour à l'accueil</a>
+
+        <script is:inline>
+          if (typeof saveCart === 'function') {
+            saveCart([]);
+          }
+        </script>
+      </div>
+    ) : (
+      <div>
+        {errors.length > 0 && (
+          <div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;padding:16px;border-radius:8px;margin-bottom:24px;">
+            <strong>Erreur(s) :</strong>
+            <ul style="margin-top:8px;padding-left:20px;">
+              {errors.map((err) => <li>{err}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <!-- Formulaire et récapitulatif -->
+        <div id="checkoutWrap" class="cart-layout" style="grid-template-columns: 1fr 380px;">
+          <div>
+            <form id="formCommande" method="post" class="checkout-form">
+              <input type="hidden" name="articles_json" id="inputArticles" value="[]" />
+              <input type="hidden" name="sous_total" id="inputSousTotal" value="0" />
+
+              <h2 style="font-size:1.3rem;margin-bottom:20px;padding-bottom:8px;border-bottom:2px solid var(--primary);">
+                1. Vos coordonnées
+              </h2>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                <div>
+                  <label for="prenom" style="display:block;font-weight:600;margin-bottom:4px;">Prénom *</label>
+                  <input type="text" id="prenom" name="prenom" required class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+                <div>
+                  <label for="nom" style="display:block;font-weight:600;margin-bottom:4px;">Nom *</label>
+                  <input type="text" id="nom" name="nom" required class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                <div>
+                  <label for="email" style="display:block;font-weight:600;margin-bottom:4px;">E-mail *</label>
+                  <input type="email" id="email" name="email" required class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+                <div>
+                  <label for="telephone" style="display:block;font-weight:600;margin-bottom:4px;">Téléphone</label>
+                  <input type="tel" id="telephone" name="telephone" class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+              </div>
+
+              <h2 style="font-size:1.3rem;margin-top:30px;margin-bottom:20px;padding-bottom:8px;border-bottom:2px solid var(--primary);">
+                2. Adresse de livraison
+              </h2>
+
+              <div style="margin-bottom:16px;">
+                <label for="adresse" style="display:block;font-weight:600;margin-bottom:4px;">Adresse *</label>
+                <input type="text" id="adresse" name="adresse" required class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:24px;">
+                <div>
+                  <label for="cp" style="display:block;font-weight:600;margin-bottom:4px;">Code postal *</label>
+                  <input type="text" id="cp" name="cp" required pattern="\d{5}" title="5 chiffres" class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+                <div>
+                  <label for="ville" style="display:block;font-weight:600;margin-bottom:4px;">Ville *</label>
+                  <input type="text" id="ville" name="ville" required class="form-control" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+                </div>
+              </div>
+
+              <h2 style="font-size:1.3rem;margin-top:30px;margin-bottom:20px;padding-bottom:8px;border-bottom:2px solid var(--primary);">
+                3. Mode de paiement (Démo)
+              </h2>
+
+              <div style="background:var(--light);padding:16px;border-radius:8px;margin-bottom:24px;border:1px solid #e2e8f0;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;">
+                  <input type="radio" name="paiement" value="cb" checked />
+                  🔒 Carte bancaire (Simulation instantanée)
+                </label>
+              </div>
+
+              <button type="submit" class="btn btn-accent btn-lg" style="width:100%;justify-content:center;font-size:1.1rem;">
+                <i class="fas fa-check-circle"></i> Valider et payer la commande
+              </button>
+            </form>
+          </div>
+
+          <!-- Checkout Sidebar Summary -->
+          <div class="cart-summary">
+            <h3>Articles de votre commande</h3>
+            <div id="checkoutItemsList" style="margin-bottom:16px;max-height:300px;overflow-y:auto;font-size:0.9rem;">
+              <!-- Filled by client JS -->
+            </div>
+
+            <div class="summary-row">
+              <span>Sous-total</span>
+              <span id="chkSubtotal">0,00 €</span>
+            </div>
+            <div class="summary-row">
+              <span>Livraison</span>
+              <span id="chkLivraison">—</span>
+            </div>
+            <div class="summary-row total">
+              <span>Total à payer</span>
+              <span id="chkTotal">0,00 €</span>
+            </div>
+          </div>
+        </div>
+
+        <script is:inline define:vars={{ livraisonSeuil }}>
+          const LIVRAISON_SEUIL = Number(livraisonSeuil || 100);
+          const LIVRAISON_FRAIS = 9.90;
+
+          function formatEur(n) {
+            return n.toFixed(2).replace('.', ',') + ' €';
+          }
+
+          document.addEventListener('DOMContentLoaded', () => {
+            const cart = typeof getCart === 'function' ? getCart() : [];
+            if (!cart || cart.length === 0) {
+              alert('Votre panier est vide.');
+              window.location.href = '/';
+              return;
+            }
+
+            const inputArticles = document.getElementById('inputArticles');
+            const inputSousTotal = document.getElementById('inputSousTotal');
+            const itemsList = document.getElementById('checkoutItemsList');
+
+            let subtotal = 0;
+            if (itemsList) itemsList.innerHTML = '';
+
+            cart.forEach(item => {
+              const lineTotal = item.prix * item.quantite;
+              subtotal += lineTotal;
+
+              if (itemsList) {
+                const itemRow = document.createElement('div');
+                itemRow.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #eee;';
+                itemRow.innerHTML = `
+                  <div>
+                    <strong>${item.nom}</strong> x ${item.quantite}
+                    ${item.variante ? `<div style="font-size:0.75rem;color:#666;">${item.variante}</div>` : ''}
+                  </div>
+                  <div style="font-weight:600;white-space:nowrap;">${formatEur(lineTotal)}</div>
+                `;
+                itemsList.appendChild(itemRow);
+              }
+            });
+
+            if (inputArticles) inputArticles.value = JSON.stringify(cart);
+            if (inputSousTotal) inputSousTotal.value = subtotal.toString();
+
+            const frais = subtotal >= LIVRAISON_SEUIL ? 0 : LIVRAISON_FRAIS;
+            const total = subtotal + frais;
+
+            const chkSub = document.getElementById('chkSubtotal');
+            const chkLiv = document.getElementById('chkLivraison');
+            const chkTot = document.getElementById('chkTotal');
+
+            if (chkSub) chkSub.textContent = formatEur(subtotal);
+            if (chkLiv) chkLiv.textContent = frais === 0 ? 'Gratuite !' : formatEur(frais);
+            if (chkTot) chkTot.textContent = formatEur(total);
+          });
+        </script>
+      </div>
+    )}
+
+  </div>
+</Layout>

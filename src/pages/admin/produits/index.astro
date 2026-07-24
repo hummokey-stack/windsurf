@@ -1,0 +1,181 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { db, schema } from '../../../db';
+import { eq, like, or, and, desc } from 'drizzle-orm';
+import { formatPrix, imageProduit } from '../../../lib/utils';
+
+let msg = '';
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = formData.get('action') as string;
+  const id = parseInt(formData.get('id') as string, 10);
+
+  if (id && action === 'delete') {
+    await db.delete(schema.produits).where(eq(schema.produits.id, id));
+    msg = 'Produit supprimé avec succès.';
+  } else if (id && action === 'toggle') {
+    const p = await db.select().from(schema.produits).where(eq(schema.produits.id, id)).limit(1);
+    if (p[0]) {
+      const newStatus = p[0].estActif === 1 ? 0 : 1;
+      await db.update(schema.produits).set({ estActif: newStatus }).where(eq(schema.produits.id, id));
+    }
+  }
+}
+
+const search = (Astro.url.searchParams.get('q') || '').trim();
+const catFil = parseInt(Astro.url.searchParams.get('cat') || '0', 10);
+
+// Fetch categories for select dropdown
+const categories = await db.select().from(schema.categories).orderBy(schema.categories.nom);
+const catMap = new Map(categories.map((c) => [c.id, c.nom]));
+
+// Fetch products with filter
+let products = await db.select().from(schema.produits).orderBy(desc(schema.produits.dateCreation));
+
+if (search !== '') {
+  const lowerSearch = search.toLowerCase();
+  products = products.filter((p) => 
+    p.nom.toLowerCase().includes(lowerSearch) || (p.marque && p.marque.toLowerCase().includes(lowerSearch))
+  );
+}
+
+if (catFil > 0) {
+  products = products.filter((p) => p.categorieId === catFil);
+}
+---
+
+<AdminLayout title="Produits">
+  {msg && (
+    <div class="alert-admin alert-admin-success">
+      <i class="fas fa-check"></i> {msg}
+    </div>
+  )}
+
+  <div class="admin-search-bar">
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;">
+      <div class="search-input-wrap">
+        <i class="fas fa-search search-icon"></i>
+        <input type="text" name="q" value={search} placeholder="Rechercher un produit..." />
+      </div>
+      <select name="cat" class="admin-form-control" style="width:auto;">
+        <option value="0">Toutes catégories</option>
+        {categories.map((cat) => (
+          <option value={cat.id} selected={catFil === cat.id}>{cat.nom}</option>
+        ))}
+      </select>
+      <button type="submit" class="btn-admin btn-admin-outline"><i class="fas fa-filter"></i> Filtrer</button>
+      {(search || catFil > 0) && (
+        <a href="/admin/produits" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Réinitialiser</a>
+      )}
+    </form>
+    <a href="/admin/produits/nouveau" class="btn-admin btn-admin-primary" style="margin-left:auto;">
+      <i class="fas fa-plus"></i> Nouveau produit
+    </a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3><i class="fas fa-box" style="margin-right:8px;"></i>{products.length} produit(s)</h3>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Nom</th>
+            <th>Catégorie</th>
+            <th>Marque</th>
+            <th>Prix</th>
+            <th>Stock</th>
+            <th>Statut</th>
+            <th>Tags</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.length === 0 ? (
+            <tr>
+              <td colspan="9" style="text-align:center;padding:40px;color:#aaa;">
+                <i class="fas fa-box-open" style="font-size:2rem;display:block;margin-bottom:10px;"></i>
+                Aucun produit trouvé.
+                <br /><a href="/admin/produits/nouveau" class="btn-admin btn-admin-primary" style="margin-top:14px;display:inline-flex;">Ajouter le premier</a>
+              </td>
+            </tr>
+          ) : (
+            products.map((p) => {
+              const img = imageProduit(p.imagePrincipale);
+              const categoryName = p.categorieId ? catMap.get(p.categorieId) || '—' : '—';
+              const stock = p.stock || 0;
+              const isRupture = stock === 0;
+              const isLowStock = stock > 0 && stock <= 3;
+              return (
+                <tr>
+                  <td>
+                    <img src={img} class="img-mini" alt={p.nom} />
+                  </td>
+                  <td>
+                    <strong>{p.nom}</strong>
+                    <div style="font-size:0.75rem;color:#999;">{p.slug}</div>
+                  </td>
+                  <td>{categoryName}</td>
+                  <td>{p.marque || '—'}</td>
+                  <td>
+                    <strong>{formatPrix(p.prix)}</strong>
+                    {p.ancienPrix && (
+                      <div style="font-size:0.8rem;color:#aaa;text-decoration:line-through;">{formatPrix(p.ancienPrix)}</div>
+                    )}
+                  </td>
+                  <td>
+                    {isRupture ? (
+                      <span class="badge-admin badge-danger">Rupture</span>
+                    ) : isLowStock ? (
+                      <span class="badge-admin badge-warning">{p.stock} restant(s)</span>
+                    ) : (
+                      <span class="badge-admin badge-success">{p.stock}</span>
+                    )}
+                  </td>
+                  <td>
+                    <form method="post" style="margin:0;display:inline;">
+                      <input type="hidden" name="action" value="toggle" />
+                      <input type="hidden" name="id" value={p.id} />
+                      <button type="submit" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;">
+                        {p.estActif === 1 ? (
+                          <span class="badge-admin badge-success" title="Cliquer pour désactiver">Actif</span>
+                        ) : (
+                          <span class="badge-admin badge-secondary" title="Cliquer pour activer">Inactif</span>
+                        )}
+                      </button>
+                    </form>
+                  </td>
+                  <td style="white-space:nowrap;">
+                    {p.estPromo === 1 && <span class="badge-admin badge-danger">Promo</span>}{' '}
+                    {p.estNouveaute === 1 && <span class="badge-admin badge-info">Nouveau</span>}{' '}
+                    {p.estOccasion === 1 && <span class="badge-admin badge-warning">Occasion</span>}
+                  </td>
+                  <td>
+                    <div class="action-btns">
+                      <a href={`/admin/produits/${p.id}`} class="btn-admin btn-admin-outline btn-admin-sm" title="Modifier">
+                        <i class="fas fa-edit"></i>
+                      </a>
+                      <a href={`/produit/${p.slug}`} target="_blank" class="btn-admin btn-admin-outline btn-admin-sm" title="Voir sur le site">
+                        <i class="fas fa-eye"></i>
+                      </a>
+                      <form method="post" style="margin:0;display:inline;" onsubmit="return confirm('Supprimer ce produit ?');">
+                        <input type="hidden" name="action" value="delete" />
+                        <input type="hidden" name="id" value={p.id} />
+                        <button type="submit" class="btn-admin btn-admin-danger btn-admin-sm" title="Supprimer">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</AdminLayout>

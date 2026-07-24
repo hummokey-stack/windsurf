@@ -1,0 +1,141 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { db, schema } from '../db';
+
+const settingsList = await db.select().from(schema.settings).limit(1);
+const settings = settingsList[0] || {
+  adresse: '123 Promenade des Sports, 06000 Nice',
+  telephone: '04 00 00 00 00',
+  email: 'contact@glisseshop.fr',
+  horaires: 'Lun-Sam 9h-19h • Dim 10h-17h',
+};
+
+let errors: string[] = [];
+let success = false;
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const nom = formData.get('nom')?.toString().trim() || '';
+  const email = formData.get('email')?.toString().trim() || '';
+  const sujet = formData.get('sujet')?.toString().trim() || '';
+  const message = formData.get('message')?.toString().trim() || '';
+
+  if (!nom) errors.push('Le nom est obligatoire.');
+  if (!email || !email.includes('@')) errors.push('Email invalide.');
+  if (!sujet) errors.push('Le sujet est obligatoire.');
+  if (!message || message.length < 10) errors.push('Le message est trop court.');
+
+  if (errors.length === 0) {
+    success = true;
+  }
+}
+---
+
+<Layout title="Nous contacter" description="Contactez l'équipe GlisseShop pour tout conseil ou renseignement.">
+  <div class="page-hero">
+    <div class="container">
+      <nav class="breadcrumb"><a href="/">Accueil</a><span>›</span><span>Contact</span></nav>
+      <h1>📞 Nous contacter</h1>
+      <p style="color:rgba(255,255,255,0.75);margin-top:8px;">Notre équipe répond dans les 24h</p>
+    </div>
+  </div>
+
+  <div class="container" style="padding-top:40px;padding-bottom:60px;">
+    <div class="contact-layout">
+
+      <!-- Infos -->
+      <div class="contact-info">
+        <h2>Notre showroom</h2>
+        <p style="color:#666;margin-bottom:28px;">Venez nous rendre visite ou contactez-nous par téléphone, email ou via ce formulaire.</p>
+
+        {settings.adresse && (
+          <div class="contact-item">
+            <div class="icon"><i class="fas fa-map-marker-alt"></i></div>
+            <div class="text">
+              <strong>Adresse</strong>
+              <span>{settings.adresse}</span>
+            </div>
+          </div>
+        )}
+
+        {settings.telephone && (
+          <div class="contact-item">
+            <div class="icon"><i class="fas fa-phone"></i></div>
+            <div class="text">
+              <strong>Téléphone</strong>
+              <span><a href={`tel:${settings.telephone.replace(/\s/g, '')}`}>{settings.telephone}</a></span>
+            </div>
+          </div>
+        )}
+
+        {settings.email && (
+          <div class="contact-item">
+            <div class="icon"><i class="fas fa-envelope"></i></div>
+            <div class="text">
+              <strong>Email</strong>
+              <span><a href={`mailto:${settings.email}`}>{settings.email}</a></span>
+            </div>
+          </div>
+        )}
+
+        {settings.horaires && (
+          <div class="contact-item">
+            <div class="icon"><i class="fas fa-clock"></i></div>
+            <div class="text">
+              <strong>Horaires d'ouverture</strong>
+              <span>{settings.horaires}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <!-- Formulaire -->
+      <div class="contact-form">
+        <h2>Envoyez-nous un message</h2>
+
+        {success ? (
+          <div style="background:#dcfce7;border:1px solid #22c55e;color:#15803d;padding:20px;border-radius:8px;text-align:center;">
+            <i class="fas fa-check-circle" style="font-size:2rem;margin-bottom:10px;display:block;"></i>
+            <h3>Message envoyé !</h3>
+            <p>Merci pour votre message. Notre équipe vous répondra dans les plus brefs délais.</p>
+          </div>
+        ) : (
+          <form method="post">
+            {errors.length > 0 && (
+              <div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;padding:12px;border-radius:6px;margin-bottom:16px;">
+                <ul style="margin:0;padding-left:16px;">
+                  {errors.map((e) => <li>{e}</li>)}
+                </ul>
+              </div>
+            )}
+
+            <div style="margin-bottom:16px;">
+              <label for="nom" style="display:block;font-weight:600;margin-bottom:4px;">Votre nom *</label>
+              <input type="text" id="nom" name="nom" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+            </div>
+
+            <div style="margin-bottom:16px;">
+              <label for="email" style="display:block;font-weight:600;margin-bottom:4px;">Votre e-mail *</label>
+              <input type="email" id="email" name="email" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+            </div>
+
+            <div style="margin-bottom:16px;">
+              <label for="sujet" style="display:block;font-weight:600;margin-bottom:4px;">Sujet *</label>
+              <input type="text" id="sujet" name="sujet" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;" />
+            </div>
+
+            <div style="margin-bottom:20px;">
+              <label for="message" style="display:block;font-weight:600;margin-bottom:4px;">Message *</label>
+              <textarea id="message" name="message" rows="5" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg" style="width:100%;justify-content:center;">
+              <i class="fas fa-paper-plane"></i> Envoyer le message
+            </button>
+          </form>
+        )}
+      </div>
+
+    </div>
+  </div>
+</Layout>

@@ -1,0 +1,233 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProductCard from '../../components/ProductCard.astro';
+import { db, schema } from '../../db';
+import { eq, inArray, and, lte, gte, like, sql, desc, asc } from 'drizzle-orm';
+
+const { slug = 'all' } = Astro.params;
+const url = new URL(Astro.request.url);
+
+const q = url.searchParams.get('q') || '';
+const marqueFilter = url.searchParams.get('marque') || '';
+const prixMaxFilter = parseFloat(url.searchParams.get('prix_max') || '0');
+const niveauFilter = url.searchParams.get('niveau') || '';
+const triFilter = url.searchParams.get('tri') || '';
+
+let categoryName = 'Tous les produits';
+let categoryDesc = 'Découvrez l\'ensemble de nos équipements sports de glisse';
+let categoryId: number | null = null;
+let subCategories: (typeof schema.categories.$inferSelect)[] = [];
+let allCatIds: number[] = [];
+
+if (slug !== 'all') {
+  const catRes = await db.select().from(schema.categories).where(eq(schema.categories.slug, slug)).limit(1);
+  if (catRes.length > 0) {
+    const cat = catRes[0];
+    categoryName = cat.nom;
+    categoryDesc = cat.description || '';
+    categoryId = cat.id;
+
+    // Get subcategories
+    subCategories = await db
+      .select()
+      .from(schema.categories)
+      .where(and(eq(schema.categories.parentId, cat.id), eq(schema.categories.actif, 1)));
+
+    allCatIds = [cat.id, ...subCategories.map((s) => s.id)];
+  }
+}
+
+// Build products query
+let productsQuery = db.select().from(schema.produits).where(eq(schema.produits.estActif, 1));
+
+// Apply category filter
+let conditions = [eq(schema.produits.estActif, 1)];
+
+if (allCatIds.length > 0) {
+  conditions.push(inArray(schema.produits.categorieId, allCatIds));
+} else if (categoryId !== null) {
+  conditions.push(eq(schema.produits.categorieId, categoryId));
+}
+
+if (q) {
+  conditions.push(sql`(${schema.produits.nom} LIKE ${`%${q}%`} OR ${schema.produits.description} LIKE ${`%${q}%`})`);
+}
+
+if (marqueFilter) {
+  conditions.push(eq(schema.produits.marque, marqueFilter));
+}
+
+if (prixMaxFilter > 0) {
+  conditions.push(lte(schema.produits.prix, prixMaxFilter));
+}
+
+if (niveauFilter) {
+  conditions.push(eq(schema.produits.niveau, niveauFilter));
+}
+
+let products = await db
+  .select()
+  .from(schema.produits)
+  .where(and(...conditions));
+
+// Apply sorting
+if (triFilter === 'prix_asc') {
+  products.sort((a, b) => a.prix - b.prix);
+} else if (triFilter === 'prix_desc') {
+  products.sort((a, b) => b.prix - a.prix);
+} else if (triFilter === 'nom_asc') {
+  products.sort((a, b) => a.nom.localeCompare(b.nom));
+} else {
+  products.sort((a, b) => (b.id - a.id));
+}
+
+// Unique brands for filter sidebar
+const allBrands = Array.from(new Set(products.map((p) => p.marque).filter(Boolean))) as string[];
+---
+
+<Layout title={categoryName} description={categoryDesc}>
+  <div class="page-hero">
+    <div class="container">
+      <div class="breadcrumb">
+        <a href="/">Accueil</a> &gt; <span>{categoryName}</span>
+      </div>
+      <h1>{categoryName}</h1>
+      {categoryDesc && <p style="color:rgba(255,255,255,0.75);margin-top:10px;max-width:600px;">{categoryDesc}</p>}
+    </div>
+  </div>
+
+  <div class="container" style="padding-top:30px;padding-bottom:50px;">
+    <div class="category-layout">
+
+      <!-- Sidebar filtres -->
+      <aside class="sidebar">
+        {subCategories.length > 0 && (
+          <div class="filter-block">
+            <h3>Sous-catégories</h3>
+            {subCategories.map((sc) => (
+              <label>
+                <a href={`/categorie/${sc.slug}`} style="color:var(--dark);font-weight:500;">
+                  {sc.nom}
+                </a>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <form id="filterForm" method="get">
+          {q && <input type="hidden" name="q" value={q} />}
+
+          {allBrands.length > 0 && (
+            <div class="filter-block">
+              <h3>Marque</h3>
+              {allBrands.map((marque) => (
+                <label style="display:block;margin-bottom:6px;cursor:pointer;">
+                  <input
+                    type="radio"
+                    name="marque"
+                    value={marque}
+                    checked={marqueFilter === marque}
+                    onChange="this.form.submit()"
+                  />
+                  {' '}{marque}
+                </label>
+              ))}
+              {marqueFilter && (
+                <label style="display:block;margin-top:8px;font-size:0.85rem;color:var(--primary);">
+                  <input type="radio" name="marque" value="" onChange="this.form.submit()" /> Toutes les marques
+                </label>
+              )}
+            </div>
+          )}
+
+          <div class="filter-block">
+            <h3>Prix max</h3>
+            <div class="price-range-wrap">
+              <input
+                type="range"
+                name="prix_max"
+                min="0"
+                max="3000"
+                step="50"
+                value={prixMaxFilter || 3000}
+                id="priceRange"
+                oninput="document.getElementById('priceVal').textContent=this.value + ' €'"
+                onchange="this.form.submit()"
+              />
+              <div class="price-range-labels">
+                <span>0 €</span>
+                <span id="priceVal">{(prixMaxFilter || 3000)} €</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="filter-block">
+            <h3>Niveau</h3>
+            {[
+              { k: 'debutant', l: 'Débutant' },
+              { k: 'intermediaire', l: 'Intermédiaire' },
+              { k: 'expert', l: 'Expert' },
+              { k: 'tous', l: 'Tous niveaux' },
+            ].map((n) => (
+              <label style="display:block;margin-bottom:6px;cursor:pointer;">
+                <input
+                  type="radio"
+                  name="niveau"
+                  value={n.k}
+                  checked={niveauFilter === n.k}
+                  onChange="this.form.submit()"
+                />
+                {' '}{n.l}
+              </label>
+            ))}
+            {niveauFilter && (
+              <label style="display:block;margin-top:8px;font-size:0.85rem;color:var(--primary);">
+                <input type="radio" name="niveau" value="" onChange="this.form.submit()" /> Tous niveaux
+              </label>
+            )}
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full">Filtrer</button>
+          <a href={`/categorie/${slug}`} class="btn btn-outline btn-full" style="margin-top:8px;text-align:center;">Réinitialiser</a>
+        </form>
+      </aside>
+
+      <!-- Main product listing -->
+      <main class="category-main">
+        <div class="category-toolbar">
+          <div class="count">
+            <strong>{products.length}</strong> produit(s) trouvé(s)
+          </div>
+          <div class="sort-wrap">
+            <label for="triSelect">Trier par : </label>
+            <select
+              id="triSelect"
+              onChange="const url = new URL(window.location); url.searchParams.set('tri', this.value); window.location = url.toString();"
+            >
+              <option value="" selected={!triFilter}>Pertinence</option>
+              <option value="prix_asc" selected={triFilter === 'prix_asc'}>Prix croissant</option>
+              <option value="prix_desc" selected={triFilter === 'prix_desc'}>Prix décroissant</option>
+              <option value="nom_asc" selected={triFilter === 'nom_asc'}>Nom (A-Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {products.length === 0 ? (
+          <div class="empty-state">
+            <i class="fas fa-search" style="font-size:3rem;color:#ccc;margin-bottom:16px;"></i>
+            <h3>Aucun produit ne correspond à votre recherche</h3>
+            <p>Essayez de modifier vos filtres ou effectuez une autre recherche.</p>
+            <a href={`/categorie/${slug}`} class="btn btn-primary" style="margin-top:16px;">Voir tous les produits</a>
+          </div>
+        ) : (
+          <div class="products-grid">
+            {products.map((p) => (
+              <ProductCard product={p} />
+            ))}
+          </div>
+        )}
+      </main>
+
+    </div>
+  </div>
+</Layout>

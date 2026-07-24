@@ -1,3 +1,14 @@
+# Build & Temp
+node_modules/
+dist/
+.astro/
+.netlify/
+
+# Local Environment Variables
+.env
+.env.*
+
+# Local SQLite databases (use Turso for production on Netlify)
 data/*.db
 data/*.db-journal
 data/*.db-wal

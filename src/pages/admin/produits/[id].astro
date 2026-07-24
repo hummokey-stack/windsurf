@@ -1,0 +1,373 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { db, schema } from '../../../db';
+import { eq, ne, and } from 'drizzle-orm';
+import { slugify, formatPrix, imageProduit } from '../../../lib/utils';
+import { uploadImage } from '../../../lib/storage';
+
+const { id } = Astro.params;
+const isNew = id === 'nouveau' || !id;
+const produitId = isNew ? 0 : parseInt(id as string, 10);
+
+let errors: string[] = [];
+let success = '';
+
+// Load categories for dropdown
+const categories = await db.select().from(schema.categories).orderBy(schema.categories.nom);
+
+// Load existing product if editing
+let product: typeof schema.produits.$inferSelect | null = null;
+if (!isNew && produitId) {
+  const res = await db.select().from(schema.produits).where(eq(schema.produits.id, produitId)).limit(1);
+  product = res[0] || null;
+  if (!product) {
+    return Astro.redirect('/admin/produits');
+  }
+}
+
+if (Astro.url.searchParams.has('saved')) {
+  success = 'Produit enregistré avec succès.';
+}
+
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+
+    const nom = (formData.get('nom') as string || '').trim();
+    const categorieIdVal = parseInt(formData.get('categorie_id') as string || '0', 10);
+    const marque = (formData.get('marque') as string || '').trim();
+    const prixStr = (formData.get('prix') as string || '0').replace(',', '.');
+    const prix = parseFloat(prixStr);
+    
+    const ancienPrixStr = (formData.get('ancien_prix') as string || '').replace(',', '.');
+    const ancienPrix = ancienPrixStr !== '' ? parseFloat(ancienPrixStr) : null;
+    
+    const stock = parseInt(formData.get('stock') as string || '0', 10);
+    const niveau = (formData.get('niveau') as string || 'tous').trim();
+    const description = formData.get('description') as string || '';
+    const descriptionCourte = (formData.get('description_courte') as string || '').trim().substring(0, 160);
+    let variantesRaw = (formData.get('variantes') as string || '').trim();
+
+    const estNouveaute = formData.get('est_nouveaute') ? 1 : 0;
+    const estPromo = formData.get('est_promo') ? 1 : 0;
+    const estOccasion = formData.get('est_occasion') ? 1 : 0;
+    const estActif = formData.get('est_actif') ? 1 : 0;
+
+    // Validation
+    if (!nom) errors.push('Le nom du produit est obligatoire.');
+    if (isNaN(prix) || prix <= 0) errors.push('Le prix doit être supérieur à 0.');
+
+    // Variantes parsing
+    let variantesJson = variantesRaw;
+    if (variantesRaw) {
+      try {
+        JSON.parse(variantesRaw);
+      } catch (e) {
+        const lines = variantesRaw.split('\n').map((s) => s.trim()).filter(Boolean);
+        variantesJson = JSON.stringify(lines);
+      }
+    }
+
+    // Main image upload
+    let imagePrincipale = product?.imagePrincipale || null;
+    const mainImgFile = formData.get('image_principale') as File;
+    if (mainImgFile && mainImgFile.size > 0) {
+      const uploaded = await uploadImage(mainImgFile, 'prod');
+      if (uploaded) {
+        imagePrincipale = uploaded;
+      } else {
+        errors.push('Image principale invalide (max 2Mo, format JPG/PNG/WebP/SVG).');
+      }
+    }
+
+    // Secondary images upload
+    let secondaryImgsList: string[] = [];
+    if (product?.imagesSecondaires) {
+      try {
+        secondaryImgsList = JSON.parse(product.imagesSecondaires) || [];
+      } catch (e) {}
+    }
+
+    const secImgFiles = formData.getAll('images_secondaires') as File[];
+    for (const file of secImgFiles) {
+      if (file && file.size > 0 && secondaryImgsList.length < 5) {
+        const uploaded = await uploadImage(file, 'prod_sec');
+        if (uploaded) {
+          secondaryImgsList.push(uploaded);
+        }
+      }
+    }
+
+    if (errors.length === 0) {
+      // Slug uniqueness check
+      let baseSlug = slugify(nom) || 'produit';
+      let uniqueSlug = baseSlug;
+      let counter = 1;
+
+      while (true) {
+        let existing;
+        if (isNew) {
+          existing = await db.select().from(schema.produits).where(eq(schema.produits.slug, uniqueSlug)).limit(1);
+        } else {
+          existing = await db.select().from(schema.produits).where(and(eq(schema.produits.slug, uniqueSlug), ne(schema.produits.id, produitId))).limit(1);
+        }
+
+        if (existing.length === 0) break;
+        uniqueSlug = `${baseSlug}-${counter++}`;
+      }
+
+      if (!isNew && produitId) {
+        await db.update(schema.produits).set({
+          nom,
+          slug: uniqueSlug,
+          categorieId: categorieIdVal || null,
+          marque,
+          prix,
+          ancienPrix,
+          stock,
+          niveau,
+          description,
+          descriptionCourte,
+          variantes: variantesJson || null,
+          imagePrincipale,
+          imagesSecondaires: JSON.stringify(secondaryImgsList),
+          estNouveaute,
+          estPromo,
+          estOccasion,
+          estActif,
+        }).where(eq(schema.produits.id, produitId));
+
+        success = 'Produit mis à jour avec succès.';
+        // Reload
+        const updatedRes = await db.select().from(schema.produits).where(eq(schema.produits.id, produitId)).limit(1);
+        product = updatedRes[0] || null;
+      } else {
+        const inserted = await db.insert(schema.produits).values({
+          nom,
+          slug: uniqueSlug,
+          categorieId: categorieIdVal || null,
+          marque,
+          prix,
+          ancienPrix,
+          stock,
+          niveau,
+          description,
+          descriptionCourte,
+          variantes: variantesJson || null,
+          imagePrincipale,
+          imagesSecondaires: JSON.stringify(secondaryImgsList),
+          estNouveaute,
+          estPromo,
+          estOccasion,
+          estActif,
+        }).returning({ newId: schema.produits.id });
+
+        const newId = inserted[0]?.newId;
+        return Astro.redirect(`/admin/produits/${newId}?saved=1`);
+      }
+    }
+  } catch (err: any) {
+    errors.push(`Erreur d'enregistrement : ${err.message || err}`);
+  }
+}
+
+// Prepare variantes display format
+let variantesText = product?.variantes || '';
+if (variantesText) {
+  try {
+    const arr = JSON.parse(variantesText);
+    if (Array.isArray(arr)) {
+      variantesText = arr.join('\n');
+    }
+  } catch (e) {}
+}
+
+let secondaryImgsDisplay: string[] = [];
+if (product?.imagesSecondaires) {
+  try {
+    secondaryImgsDisplay = JSON.parse(product.imagesSecondaires) || [];
+  } catch (e) {}
+}
+---
+
+<AdminLayout title={isNew ? 'Nouveau produit' : `Modifier : ${product?.nom}`}>
+  {errors.length > 0 && (
+    <div class="alert-admin alert-admin-danger">
+      <i class="fas fa-exclamation-circle"></i>
+      <ul style="margin:0;padding-left:18px;">
+        {errors.map((e) => <li>{e}</li>)}
+      </ul>
+    </div>
+  )}
+
+  {success && (
+    <div class="alert-admin alert-admin-success"><i class="fas fa-check-circle"></i> {success}</div>
+  )}
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+    <a href="/admin/produits" class="btn-admin btn-admin-outline"><i class="fas fa-arrow-left"></i> Retour à la liste</a>
+    {!isNew && product && (
+      <a href={`/produit/${product.slug}`} target="_blank" class="btn-admin btn-admin-outline">
+        <i class="fas fa-external-link-alt"></i> Voir la fiche produit
+      </a>
+    )}
+  </div>
+
+  <form method="post" enctype="multipart/form-data">
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start;">
+
+      <!-- Main Column -->
+      <div>
+
+        <!-- Basic Info -->
+        <div class="card">
+          <div class="card-header"><h3>Informations principales</h3></div>
+          <div class="card-body">
+            <div class="admin-form-group">
+              <label for="nom">Nom du produit <span class="req">*</span></label>
+              <input type="text" id="nom" name="nom" class="admin-form-control"
+                value={product?.nom || ''} required placeholder="Ex: Aile Wing F-One 5m" />
+            </div>
+
+            <div class="admin-form-row">
+              <div class="admin-form-group">
+                <label for="marque">Marque</label>
+                <input type="text" id="marque" name="marque" class="admin-form-control"
+                  value={product?.marque || ''} placeholder="F-One, Duotone, Naish..." />
+              </div>
+              <div class="admin-form-group">
+                <label for="categorie_id">Catégorie</label>
+                <select id="categorie_id" name="categorie_id" class="admin-form-control">
+                  <option value="">— Sélectionner —</option>
+                  {categories.map((cat) => (
+                    <option value={cat.id} selected={product?.categorieId === cat.id}>{cat.nom}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div class="admin-form-row">
+              <div class="admin-form-group">
+                <label for="prix">Prix de vente (€) <span class="req">*</span></label>
+                <input type="number" step="0.01" id="prix" name="prix" class="admin-form-control"
+                  value={product?.prix || ''} required placeholder="849.00" />
+              </div>
+              <div class="admin-form-group">
+                <label for="ancien_prix">Ancien prix / Prix barré (€)</label>
+                <input type="number" step="0.01" id="ancien_prix" name="ancien_prix" class="admin-form-control"
+                  value={product?.ancienPrix || ''} placeholder="999.00" />
+              </div>
+            </div>
+
+            <div class="admin-form-row">
+              <div class="admin-form-group">
+                <label for="stock">Stock disponible</label>
+                <input type="number" id="stock" name="stock" class="admin-form-control"
+                  value={product?.stock ?? 5} min="0" />
+              </div>
+              <div class="admin-form-group">
+                <label for="niveau">Niveau recommandé</label>
+                <select id="niveau" name="niveau" class="admin-form-control">
+                  <option value="tous" selected={product?.niveau === 'tous'}>Tous niveaux</option>
+                  <option value="debutant" selected={product?.niveau === 'debutant'}>Débutant</option>
+                  <option value="intermediaire" selected={product?.niveau === 'intermediaire'}>Intermédiaire</option>
+                  <option value="expert" selected={product?.niveau === 'expert'}>Expert</option>
+                </select>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Descriptions -->
+        <div class="card" style="margin-top:20px;">
+          <div class="card-header"><h3>Description & Contenu</h3></div>
+          <div class="card-body">
+            <div class="admin-form-group">
+              <label for="description_courte">Description courte (max 160 caractères)</label>
+              <textarea id="description_courte" name="description_courte" class="admin-form-control" rows="2"
+                maxlength="160" placeholder="Aperçu rapide affiché dans les cartes produits...">{product?.descriptionCourte || ''}</textarea>
+            </div>
+
+            <div class="admin-form-group">
+              <label for="description">Description détaillée (HTML)</label>
+              <textarea id="description" name="description" class="admin-form-control" rows="8"
+                placeholder="Spécifications techniques, caractéristiques, conseils d'utilisation...">{product?.description || ''}</textarea>
+            </div>
+
+            <div class="admin-form-group">
+              <label for="variantes">Variantes (une par ligne : tailles, volumes, couleurs)</label>
+              <textarea id="variantes" name="variantes" class="admin-form-control" rows="3"
+                placeholder={'5m\n6m\n7m'}>{variantesText}</textarea>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Sidebar Column -->
+      <div>
+
+        <!-- Options / Flags -->
+        <div class="card">
+          <div class="card-header"><h3>Statut & Options</h3></div>
+          <div class="card-body">
+            <label class="admin-checkbox-wrap" style="margin-bottom:12px;">
+              <input type="checkbox" name="est_actif" value="1" checked={product ? product.estActif === 1 : true} />
+              <span><strong>Produit actif</strong> (visible en boutique)</span>
+            </label>
+            <label class="admin-checkbox-wrap" style="margin-bottom:12px;">
+              <input type="checkbox" name="est_promo" value="1" checked={product?.estPromo === 1} />
+              <span>En promotion 🔥</span>
+            </label>
+            <label class="admin-checkbox-wrap" style="margin-bottom:12px;">
+              <input type="checkbox" name="est_nouveaute" value="1" checked={product ? product.estNouveaute === 1 : true} />
+              <span>Nouveauté ✨</span>
+            </label>
+            <label class="admin-checkbox-wrap">
+              <input type="checkbox" name="est_occasion" value="1" checked={product?.estOccasion === 1} />
+              <span>Matériel d'occasion ♻️</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Images -->
+        <div class="card" style="margin-top:20px;">
+          <div class="card-header"><h3>Images</h3></div>
+          <div class="card-body">
+            <div class="admin-form-group">
+              <label>Image principale</label>
+              {product?.imagePrincipale && (
+                <div style="margin-bottom:10px;">
+                  <img src={imageProduit(product.imagePrincipale)} alt="Aperçu" style="max-width:100%;height:auto;border-radius:6px;border:1px solid #ddd;" />
+                </div>
+              )}
+              <input type="file" name="image_principale" class="admin-form-control" accept="image/*" />
+            </div>
+
+            <div class="admin-form-group" style="margin-top:16px;">
+              <label>Images secondaires (max 5)</label>
+              {secondaryImgsDisplay.length > 0 && (
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                  {secondaryImgsDisplay.map((img) => (
+                    <img src={imageProduit(img)} style="width:50px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #ddd;" />
+                  ))}
+                </div>
+              )}
+              <input type="file" name="images_secondaires" class="admin-form-control" accept="image/*" multiple />
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Button -->
+        <button type="submit" class="btn-admin btn-admin-primary btn-admin-lg" style="width:100%;justify-content:center;margin-top:20px;">
+          <i class="fas fa-save"></i> Enregistrer le produit
+        </button>
+
+      </div>
+
+    </div>
+
+  </form>
+</AdminLayout>

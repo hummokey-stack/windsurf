@@ -1,0 +1,134 @@
+---
+import { db, schema } from '../db';
+import { eq, count } from 'drizzle-orm';
+
+interface Props {
+  title?: string;
+}
+
+const { title } = Astro.props;
+
+const adminSession = Astro.locals.admin;
+const adminLogin = adminSession?.login || 'Admin';
+
+// Count pending orders
+const pendingOrders = await db
+  .select({ value: count() })
+  .from(schema.commandes)
+  .where(eq(schema.commandes.statut, 'en_attente'));
+
+const nbCommandesAttente = pendingOrders[0]?.value || 0;
+
+// Fetch settings
+const settingsList = await db.select().from(schema.settings).limit(1);
+const siteSettings = settingsList[0] || { siteName: 'GlisseShop' };
+const siteName = siteSettings.siteName || 'GlisseShop';
+
+const pathname = Astro.url.pathname;
+function isActive(path: string): string {
+  if (path === '/admin' && (pathname === '/admin' || pathname === '/admin/' || pathname === '/admin/index')) {
+    return ' active';
+  }
+  return pathname.startsWith(path) && path !== '/admin' ? ' active' : '';
+}
+---
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title ? `${title} — Admin` : 'Administration'} — {siteName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/assets/css/admin.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="admin-body">
+
+<div class="admin-layout">
+
+  <!-- Sidebar -->
+  <aside class="admin-sidebar" id="adminSidebar">
+    <div class="sidebar-brand">
+      <div class="brand-name">{siteName}<span>Admin</span></div>
+      <div class="brand-sub">Panneau d'administration</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section">Principal</div>
+      <ul>
+        <li><a href="/admin" class={isActive('/admin')}><span class="icon"><i class="fas fa-tachometer-alt"></i></span> Dashboard</a></li>
+        <li><a href="/" target="_blank"><span class="icon"><i class="fas fa-external-link-alt"></i></span> Voir le site</a></li>
+      </ul>
+
+      <div class="nav-section">Catalogue</div>
+      <ul>
+        <li><a href="/admin/produits" class={isActive('/admin/produits')}><span class="icon"><i class="fas fa-box"></i></span> Produits</a></li>
+        <li><a href="/admin/categories" class={isActive('/admin/categories')}><span class="icon"><i class="fas fa-tags"></i></span> Catégories</a></li>
+      </ul>
+
+      <div class="nav-section">Ventes</div>
+      <ul>
+        <li>
+          <a href="/admin/commandes" class={isActive('/admin/commandes')}>
+            <span class="icon"><i class="fas fa-shopping-bag"></i></span> Commandes
+            {nbCommandesAttente > 0 && (
+              <span class="badge-nav">{nbCommandesAttente}</span>
+            )}
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-section">Contenu</div>
+      <ul>
+        <li><a href="/admin/blog" class={isActive('/admin/blog')}><span class="icon"><i class="fas fa-newspaper"></i></span> Blog</a></li>
+      </ul>
+
+      <div class="nav-section">Paramètres</div>
+      <ul>
+        <li><a href="/admin/parametres" class={isActive('/admin/parametres')}><span class="icon"><i class="fas fa-cog"></i></span> Paramètres</a></li>
+      </ul>
+    </nav>
+
+    <div class="sidebar-footer">
+      <form action="/admin/logout" method="post" style="margin:0;">
+        <button type="submit" style="background:none;border:none;color:inherit;font:inherit;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;width:100%;">
+          <i class="fas fa-sign-out-alt"></i> Déconnexion
+        </button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="admin-main">
+    <!-- Top bar -->
+    <div class="admin-topbar">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <button id="sidebarToggle" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:#555;">
+          <i class="fas fa-bars"></i>
+        </button>
+        <div class="topbar-title">{title || 'Dashboard'}</div>
+      </div>
+      <div class="topbar-actions">
+        <a href="/admin/produits/nouveau" class="btn-admin btn-admin-primary btn-admin-sm">
+          <i class="fas fa-plus"></i> Nouveau produit
+        </a>
+        <div class="topbar-user">
+          <div class="avatar">{adminLogin.charAt(0).toUpperCase()}</div>
+          <span>{adminLogin}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="admin-content">
+      <slot />
+    </div>
+  </div>
+
+</div>
+
+<script is:inline src="/assets/js/admin.js"></script>
+</body>
+</html>
